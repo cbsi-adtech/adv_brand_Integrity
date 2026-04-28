@@ -36,7 +36,7 @@ By default the dashboard ships with mock data. To load your own:
    - **Advertiser/brand mismatches** — rows where the advertiser industry and brand industry disagree.
 3. Click **Load** for each. The dashboard will repopulate from your CSV.
 
-CSV column expectations are documented inline in the paste dialog.
+CSV column expectations are documented inline in the paste dialog. The full BigQuery schema, the working power query, and the industry-resolution logic the dashboard relies on are documented in [DATA_SCHEMA.md](DATA_SCHEMA.md).
 
 ## Project layout
 
