@@ -805,7 +805,7 @@ function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries
     <table className="w-full">
       <thead>
         <tr>
-          <Th col="global_brand_id" toggleSort={toggleSort} SortIcon={SortIcon} width="100px">Brand ID</Th>
+          <Th col="v3_brand_id" toggleSort={toggleSort} SortIcon={SortIcon} width="110px">AM Brand ID</Th>
           <Th col="global_brand_nm" toggleSort={toggleSort} SortIcon={SortIcon}>Brand</Th>
           <Th col="am_industry_nm" toggleSort={toggleSort} SortIcon={SortIcon}>AM Industry <span className="text-slate-400 font-normal normal-case">(applied)</span></Th>
           <Th col="gb_industry_nm" toggleSort={toggleSort} SortIcon={SortIcon}>Global Brand Industry <span className="text-slate-400 font-normal normal-case">(FW canonical)</span></Th>
@@ -824,7 +824,11 @@ function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries
             (r.status === 'indirect_only' || r.status === 'direct_only') ? 'bg-blue-50/30' : '';
           return (
             <tr key={`${r.global_brand_id}-${i}`} className={`border-b border-slate-100 hover:bg-slate-50/60 transition ${rowTone}`}>
-              <td className="px-4 py-3 text-sm font-mono text-slate-500 tabular-nums">{r.global_brand_id}</td>
+              <td className="px-4 py-3 text-sm font-mono text-slate-500 tabular-nums">
+                {r.v3_brand_id != null
+                  ? r.v3_brand_id
+                  : <span className="italic text-slate-400" title={`No V3 brand mapping. Global brand ID: ${r.global_brand_id}. Re-export with v3_brand_id column.`}>—</span>}
+              </td>
               <td className="px-4 py-3 text-sm font-medium text-slate-900">{r.global_brand_nm}</td>
               <td className="px-3 py-3">
                 <IndustryEditCell
