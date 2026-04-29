@@ -143,6 +143,8 @@ SELECT
   ga.global_advertiser_nm,
   b.applied_industry_ids_raw,
   gb.global_industry_ids[SAFE_OFFSET(0)] AS gb_industry_id,
+  av.advertiser_id     AS v3_advertiser_id,
+  bv.brand_id          AS v3_brand_id,
   SUM(b.impressions)      AS impressions,
   SUM(b.revenue)          AS revenue
 FROM base AS b
@@ -150,7 +152,11 @@ LEFT JOIN `i-digital-adsales-prod.fw_datafeed_dim_vw.global_brand_dim`      AS g
   ON gb.global_brand_id      = b.brand_id
 LEFT JOIN `i-digital-adsales-prod.fw_datafeed_dim_vw.global_advertiser_dim` AS ga
   ON ga.global_advertiser_id = b.advertiser_id
-GROUP BY 1, 2, 3, 4, 5, 6, 7
+LEFT JOIN `i-digital-adsales-prod.fw_datafeed_dim_vw.advertiser_dim` AS av
+  ON av.global_advertiser_id = b.advertiser_id
+LEFT JOIN `i-digital-adsales-prod.fw_datafeed_dim_vw.brand_dim`      AS bv
+  ON bv.global_brand_id = b.brand_id
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9
 ORDER BY revenue DESC
 LIMIT 5000
 ```
@@ -166,8 +172,12 @@ LIMIT 5000
 | `global_advertiser_nm` | FW canonical advertiser name (legal entity) |
 | `applied_industry_ids_raw` | Pipe-delimited full industry hierarchy array |
 | `gb_industry_id` | First element of global brand dim's industry array (walk to root before comparing) |
+| `v3_advertiser_id` | V3 brand-API path parameter — the sub-granular advertiser entity. From `advertiser_dim` |
+| `v3_brand_id` | V3 brand-API path parameter — the sub-granular brand entity. From `brand_dim` |
 | `impressions` | Delivered impressions |
 | `revenue` | Revenue |
+
+If a row's `v3_advertiser_id` or `v3_brand_id` is NULL in the export, the dashboard renders that row's AM Industry cell as read-only (no V3 brand mapping). Re-check the dim joins.
 
 ---
 
@@ -211,3 +221,19 @@ Embedded in dashboard from FreeWheel Streaming Hub User Guide (Apr 2026).
 6. **`global_industry_ids` does not exist on `direct_sold_ni_hourly_fct`, `mpp_mkpl_hourly_fct`, or `programmatic_ni_hourly_fct`.** Only on `demand_portfolio_hourly_fct`.
 7. **`creative_id` = -1 on all Marketplace Private rows** in `demand_portfolio_hourly_fct`. Not a useful identifier for MPP.
 8. **`global_brand_dim.global_industry_ids[SAFE_OFFSET(0)]` can lag Streaming Hub.** If a brand shows a mismatch but the Streaming Hub UI shows the correct industry, the dim record may be stale. The AM assignment in Streaming Hub is the operational truth.
+
+---
+
+## Editing the AM Brand Entity Industry
+
+The Brand Industry Issues tab supports in-place editing of the AM (V3) brand
+industry assignment. Click the AM Industry chip on a row to open a searchable
+industry picker; pick a new industry and the row enters a "pending" state.
+Stage as many changes as you want; click "Review & Apply" to see the diff and
+target environment, then commit. The dashboard pushes each change via the
+FreeWheel Streaming Hub MCP (`sh_1_1_show-a-brand` → mutate XML →
+`sh_1_1_update-a-brand`) and writes a JSON Lines audit entry to
+`server/audit.log` for every attempt. Successful changes update the row's
+AM industry locally; failures stay in pending so you can retry. The 50 group
+IDs are excluded from the picker (per the FW Industry Taxonomy section
+above) — they are not assignable.
