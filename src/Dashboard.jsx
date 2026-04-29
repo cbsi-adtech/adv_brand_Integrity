@@ -6,7 +6,7 @@ const FW_INDUSTRIES = [[92,"Abrasives Manufacture",0],[57,"Accounting Services",
 // If a fact-table row has an industry_id matching one of these, it is a misuse.
 const FW_GROUPS = [[428,"Aerospace"],[396,"Amusement and Recreation"],[397,"Apparel"],[435,"Apparel/Accessories"],[415,"Appliances"],[421,"Associations"],[432,"Audio and Video Equipment"],[399,"Automotive"],[400,"Beer/Wine/Liquor"],[401,"Beverages"],[393,"Business Services"],[430,"Commercial Printing"],[431,"Computing"],[409,"Computing Product"],[411,"Cosmetics/Toiletries"],[433,"Drug Stores"],[405,"Educational Services"],[392,"Entertainment"],[422,"Eye Care/Optical"],[419,"Filmed Entertainment"],[391,"Financial Services"],[394,"Food"],[414,"Gambling"],[413,"Gaming"],[398,"Government/Municipal"],[406,"Health Care Services"],[434,"Home Furnishings"],[412,"Household Products"],[436,"Insurance"],[418,"Jewelry"],[437,"Mail Order/Catalogue"],[390,"Manufacturing"],[420,"Media"],[429,"Military"],[439,"New Media"],[438,"News"],[408,"Office Equipment/Supplies"],[423,"Pet Food/Supplies"],[402,"Pharmaceuticals"],[424,"Photographic Equipment"],[410,"Product"],[425,"Professional Sports"],[404,"Publishing"],[416,"Real Estate"],[407,"Restaurant/Fast Food"],[403,"Retail Stores/Chains"],[417,"Telecommunications"],[426,"Tobacco"],[427,"Toys/Games"],[395,"Travel/Hotels/Airlines"]];
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AlertTriangle, AlertCircle, Search, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, XCircle, Building2, Upload, FileCode2, X, Database, Layers, BookOpen, Filter } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -221,6 +221,13 @@ export default function Dashboard() {
   const [unmapped, setUnmapped] = useState(MOCK_UNMAPPED);
   const [mismatchRaw, setMismatchRaw] = useState(MOCK_MISMATCH);
   const [dataSource, setDataSource] = useState('mock');
+  const [industries, setIndustries] = useState(null);
+  useEffect(() => {
+    fetch('/api/industries')
+      .then((r) => r.json())
+      .then(setIndustries)
+      .catch(() => setIndustries({ assignable: [], groupIds: [] }));
+  }, []);
 
   // Enrich mismatch rows with computed names + status
   const mismatch = useMemo(() => mismatchRaw.map(r => ({
