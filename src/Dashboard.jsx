@@ -268,6 +268,20 @@ export default function Dashboard() {
       .then(setIndustries)
       .catch(() => setIndustries({ assignable: [], groupIds: [] }));
   }, []);
+  const [pending, setPending] = useState({}); // key = `${v3_advertiser_id}:${v3_brand_id}`, value = { brand_name, current_industry_id, new_industry_id, new_industry_name }
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [results, setResults] = useState(null);
+  const [healthEnv, setHealthEnv] = useState(null);
+  useEffect(() => {
+    fetch('/api/health').then((r) => r.json()).then((d) => setHealthEnv(d.environment)).catch(() => {});
+  }, []);
+
+  function pendingKey(r) {
+    return r.v3_advertiser_id != null && r.v3_brand_id != null
+      ? `${r.v3_advertiser_id}:${r.v3_brand_id}`
+      : null;
+  }
 
   // Enrich mismatch rows with computed names + status
   const mismatch = useMemo(() => mismatchRaw.map(r => ({
@@ -409,7 +423,36 @@ export default function Dashboard() {
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
               {tab === 'unmapped'
                 ? <UnmappedTable rows={activeRows} toggleSort={toggleSort} SortIcon={SortIcon} />
-                : <MismatchTable rows={activeRows} toggleSort={toggleSort} SortIcon={SortIcon} onIndustryClick={() => setBrowserOpen(true)} />}
+                : <MismatchTable
+                    rows={activeRows}
+                    toggleSort={toggleSort}
+                    SortIcon={SortIcon}
+                    onIndustryClick={() => setBrowserOpen(true)}
+                    industries={industries}
+                    pending={pending}
+                    onPick={(row, ind) => {
+                      const key = pendingKey(row);
+                      if (!key) return;
+                      setPending((prev) => ({
+                        ...prev,
+                        [key]: {
+                          v3_advertiser_id: row.v3_advertiser_id,
+                          v3_brand_id: row.v3_brand_id,
+                          brand_name: row.global_brand_nm,
+                          current_industry_id: row.am_industry_id,
+                          new_industry_id: ind.id,
+                          new_industry_name: ind.name,
+                        },
+                      }));
+                    }}
+                    onRevert={(row) => {
+                      const key = pendingKey(row);
+                      setPending((prev) => {
+                        const { [key]: _drop, ...rest } = prev;
+                        return rest;
+                      });
+                    }}
+                  />}
             </div>
           </>
         )}
@@ -556,7 +599,87 @@ const TAXONOMY_DETAIL = (() => {
 
 function getTaxDetail(id) { return TAXONOMY_DETAIL.get(id); }
 
-function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick }) {
+function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const canEdit = row.v3_advertiser_id != null && row.v3_brand_id != null && industries?.assignable?.length > 0;
+
+  const display = pendingEntry
+    ? { id: pendingEntry.new_industry_id, name: pendingEntry.new_industry_name }
+    : { id: row.am_industry_id, name: row.am_industry_nm };
+
+  const filtered = useMemo(() => {
+    if (!industries) return [];
+    const q = query.trim().toLowerCase();
+    const list = industries.assignable;
+    if (!q) return list.slice(0, 100);
+    return list
+      .filter((i) => i.name.toLowerCase().includes(q) || String(i.id).includes(q) || i.path.toLowerCase().includes(q))
+      .slice(0, 100);
+  }, [industries, query]);
+
+  if (!canEdit) {
+    return (
+      <span title={industries?.assignable?.length ? 'No V3 brand mapping — re-export with v3_advertiser_id/v3_brand_id' : 'Loading taxonomy…'}>
+        <IndustryChip id={display.id} name={display.name} klass={row.am_id_class} highlight={row.status === 'mismatch'} />
+      </span>
+    );
+  }
+
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-left"
+      >
+        <IndustryChip id={display.id} name={display.name} klass={row.am_id_class} highlight={row.status === 'mismatch'} />
+        {pendingEntry && (
+          <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 align-middle">pending</span>
+        )}
+      </button>
+      {pendingEntry && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRevert(); }}
+          className="ml-1 text-slate-400 hover:text-slate-700 text-xs"
+          title="Discard this pending change"
+        >↺</button>
+      )}
+      {open && (
+        <div className="absolute z-50 mt-1 left-0 w-80 bg-white border border-slate-200 rounded-md shadow-lg">
+          <div className="p-2 border-b border-slate-100">
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search industries…"
+              className="w-full text-sm px-2 py-1 border border-slate-200 rounded outline-none focus:border-blue-400"
+              onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
+            />
+          </div>
+          <ul className="max-h-72 overflow-auto">
+            {filtered.length === 0 && <li className="px-3 py-2 text-xs text-slate-400">No matches</li>}
+            {filtered.map((i) => (
+              <li key={i.id}>
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 flex items-center justify-between gap-2"
+                  onClick={() => { onPick(i); setOpen(false); setQuery(''); }}
+                >
+                  <span className="truncate">{i.path}</span>
+                  <span className="text-[10px] text-slate-400 tabular-nums">{i.id} · d{i.depth}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries, pending, onPick, onRevert }) {
   return (
     <table className="w-full">
       <thead>
@@ -582,7 +705,15 @@ function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick }) {
             <tr key={`${r.global_brand_id}-${i}`} className={`border-b border-slate-100 hover:bg-slate-50/60 transition ${rowTone}`}>
               <td className="px-4 py-3 text-sm font-mono text-slate-500 tabular-nums">{r.global_brand_id}</td>
               <td className="px-4 py-3 text-sm font-medium text-slate-900">{r.global_brand_nm}</td>
-              <td className="px-3 py-3"><IndustryChip id={r.am_industry_id} name={r.am_industry_nm} klass={r.am_id_class} onClick={onIndustryClick} highlight={r.status === 'mismatch'} /></td>
+              <td className="px-3 py-3">
+                <IndustryEditCell
+                  row={r}
+                  industries={industries}
+                  pendingEntry={pending[`${r.v3_advertiser_id}:${r.v3_brand_id}`]}
+                  onPick={(ind) => onPick(r, ind)}
+                  onRevert={() => onRevert(r)}
+                />
+              </td>
               <td className="px-3 py-3"><IndustryChip id={r.gb_industry_id} name={r.gb_industry_nm} klass={r.gb_id_class} onClick={onIndustryClick} highlight={r.status === 'mismatch'} canonical /></td>
               <td className="px-3 py-3">
                 <IndustryChip id={r.ind_industry_id} name={r.ind_industry_nm} klass={r.ind_id_class} onClick={onIndustryClick} />
