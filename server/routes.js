@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getIndustryPayload, GROUP_IDS } from './industries.js';
 import { mutateBrandIndustry } from './mutate-brand-xml.js';
 import { appendAudit } from './audit.js';
+import { createResolver } from './v3-resolver.js';
 
 function isValidChange(c) {
   return c
@@ -13,6 +14,7 @@ function isValidChange(c) {
 
 export function createRouter({ fw, environment }) {
   const router = Router();
+  const resolver = createResolver({ fw });
 
   router.get('/health', (req, res) => {
     res.json({
@@ -82,6 +84,25 @@ export function createRouter({ fw, environment }) {
     }
 
     res.json({ environment, results });
+  });
+
+  router.post('/resolve-v3', async (req, res) => {
+    const { items } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'body.items must be a non-empty array' });
+    }
+    const cap = Math.min(items.length, 200);
+    const requested = items.slice(0, cap);
+    try {
+      const results = await resolver.resolveAll(requested);
+      const counts = results.reduce((acc, r) => {
+        acc[r.status] = (acc[r.status] || 0) + 1;
+        return acc;
+      }, {});
+      res.json({ counts, results });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
   });
 
   return router;

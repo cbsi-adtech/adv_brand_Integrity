@@ -283,6 +283,8 @@ export default function Dashboard() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [applying, setApplying] = useState(false);
   const [results, setResults] = useState(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveStatus, setResolveStatus] = useState(null); // { resolved, cached, error, total }
   const [healthEnv, setHealthEnv] = useState(null);
   useEffect(() => {
     fetch('/api/health').then((r) => r.json()).then((d) => setHealthEnv(d.environment)).catch(() => {});
@@ -398,6 +400,66 @@ export default function Dashboard() {
                 <span className={`w-1.5 h-1.5 rounded-full ${dataSource === 'bq' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                 {dataSource === 'bq' ? 'Live · BigQuery' : 'Mock data'}
               </span>
+              <button
+                onClick={async () => {
+                  if (resolving) return;
+                  const candidates = mismatchRaw
+                    .filter((r) => r.global_brand_id != null && (r.v3_advertiser_id == null || r.v3_brand_id == null))
+                    .slice()
+                    .sort((a, b) => (Number(b.am_revenue || 0) + Number(b.ind_revenue || 0)) - (Number(a.am_revenue || 0) + Number(a.ind_revenue || 0)))
+                    .slice(0, 100)
+                    .map((r) => ({
+                      global_brand_id: r.global_brand_id,
+                      global_brand_nm: r.global_brand_nm,
+                      global_advertiser_nm: r.global_advertiser_nm,
+                    }));
+                  if (candidates.length === 0) {
+                    window.alert('No rows need V3 resolution.');
+                    return;
+                  }
+                  setResolving(true);
+                  setResolveStatus({ total: candidates.length });
+                  try {
+                    const res = await fetch('/api/resolve-v3', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ items: candidates }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+                    const byId = new Map(
+                      (data.results || [])
+                        .filter((r) => r.v3_advertiser_id != null && r.v3_brand_id != null)
+                        .map((r) => [String(r.global_brand_id), r])
+                    );
+                    setMismatchRaw((rows) => rows.map((row) => {
+                      const m = byId.get(String(row.global_brand_id));
+                      if (!m) return row;
+                      return {
+                        ...row,
+                        v3_advertiser_id: m.v3_advertiser_id,
+                        v3_brand_id: m.v3_brand_id,
+                        pmnt_advertiser_nm: row.pmnt_advertiser_nm || m.v3_advertiser_nm,
+                        pmnt_brand_nm: row.pmnt_brand_nm || m.v3_brand_nm,
+                      };
+                    }));
+                    setResolveStatus({ ...(data.counts || {}), total: candidates.length });
+                  } catch (err) {
+                    setResolveStatus({ error: err.message, total: candidates.length });
+                  } finally {
+                    setResolving(false);
+                  }
+                }}
+                disabled={resolving}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                title="Resolve V3 brand mappings for the top 100 unresolved rows by revenue"
+              >
+                {resolving
+                  ? `Resolving${resolveStatus?.total ? ` 0/${resolveStatus.total}` : ''}…`
+                  : resolveStatus
+                  ? `V3: ${resolveStatus.resolved || 0} resolved · ${resolveStatus.cached || 0} cached${resolveStatus.error ? ` · ${resolveStatus.error}` : ''}`
+                  : 'Resolve top 100 V3'}
+              </button>
               <button onClick={() => setBrowserOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">
                 <BookOpen className="w-3.5 h-3.5" /> Industry Browser
               </button>

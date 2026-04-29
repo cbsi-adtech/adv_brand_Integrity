@@ -41,3 +41,4 @@ coverage/
 # BFF
 .env
 server/audit.log
+server/v3-mapping-cache.json
