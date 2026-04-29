@@ -210,6 +210,46 @@ function parseCsv(text) {
   });
 }
 
+// ─── EnvBadge ────────────────────────────────────────────────
+function EnvBadge() {
+  const [health, setHealth] = useState({ status: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const res = await fetch('/api/health');
+        if (!res.ok) throw new Error('bad status');
+        const data = await res.json();
+        if (!cancelled) setHealth({ status: data.loggedIn ? 'ok' : 'login_failed', ...data });
+      } catch {
+        if (!cancelled) setHealth({ status: 'offline' });
+      }
+    }
+    poll();
+    const t = setInterval(poll, 30000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  if (health.status === 'loading') {
+    return <span className="px-2 py-1 rounded text-[11px] font-semibold tracking-wider uppercase bg-slate-200 text-slate-600">Connecting…</span>;
+  }
+  if (health.status === 'offline') {
+    return <span className="px-2 py-1 rounded text-[11px] font-semibold tracking-wider uppercase bg-slate-300 text-slate-700" title="Start the BFF with `npm run dev`">BFF Offline</span>;
+  }
+  if (health.status === 'login_failed') {
+    return <span className="px-2 py-1 rounded text-[11px] font-semibold tracking-wider uppercase bg-amber-100 text-amber-800">Login Failed</span>;
+  }
+  const env = (health.environment || '').toLowerCase();
+  const isProd = env === 'production';
+  const cls = isProd ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700';
+  return (
+    <span className={`px-2 py-1 rounded text-[11px] font-semibold tracking-wider uppercase ${cls}`}>
+      {env || 'unknown'}
+    </span>
+  );
+}
+
 // ─── Main ────────────────────────────────────────────────────
 export default function Dashboard() {
   const [tab, setTab] = useState('mismatches');
@@ -314,6 +354,7 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <EnvBadge />
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border ${dataSource === 'bq' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${dataSource === 'bq' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                 {dataSource === 'bq' ? 'Live · BigQuery' : 'Mock data'}
