@@ -12,7 +12,11 @@ async function postRpc(fetchImpl, url, body) {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`FW MCP HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`FW MCP HTTP ${res.status}`);
+    if (res.status === 401) err.isAuth = true;
+    throw err;
+  }
   return res.json();
 }
 

@@ -85,4 +85,25 @@ describe('fw client', () => {
       .rejects.toThrow(/industry 5252 not assignable/);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('re-logs in on HTTP 401 and retries', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => rpcResponse(1, { session_id: 'sess-1' }) })
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, json: async () => rpcResponse(3, { session_id: 'sess-2' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => rpcResponse(4, { brand_id: 1 }) });
+
+    const fw = createFwClient({
+      url: 'https://fw.example/',
+      username: 'u', password: 'p', environment: 'staging',
+      fetchImpl: fetchMock,
+    });
+
+    const result = await fw.invoke('sh_1_1_show-a-brand', { advertiser_id: 1, brand_id: 1 });
+    expect(result).toEqual({ brand_id: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // Confirm the retry used the NEW session id from re-login:
+    const retryBody = JSON.parse(fetchMock.mock.calls[3][1].body);
+    expect(retryBody.params.arguments.parameters.session_id).toBe('sess-2');
+  });
 });
