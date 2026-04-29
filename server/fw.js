@@ -70,7 +70,8 @@ export function createFwClient({ url, username, password, environment, fetchImpl
         name: 'invoke_tool',
         arguments: {
           tool_name: toolName,
-          parameters: { ...parameters, session_id: sessionId },
+          parameters,
+          session_id: sessionId,
         },
       },
     };

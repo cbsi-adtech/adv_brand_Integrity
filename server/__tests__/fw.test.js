@@ -49,7 +49,8 @@ describe('fw client', () => {
     expect(loginBody.params.arguments).toMatchObject({ environment: 'staging', username: 'u', password: 'p' });
     const invokeBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(invokeBody.params.name).toBe('invoke_tool');
-    expect(invokeBody.params.arguments.parameters.session_id).toBe('sess-abc');
+    expect(invokeBody.params.arguments.session_id).toBe('sess-abc');
+    expect(invokeBody.params.arguments.parameters).toEqual({ advertiser_id: 1, brand_id: 1 });
   });
 
   it('re-logs in once on auth error then retries', async () => {
@@ -104,6 +105,6 @@ describe('fw client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     // Confirm the retry used the NEW session id from re-login:
     const retryBody = JSON.parse(fetchMock.mock.calls[3][1].body);
-    expect(retryBody.params.arguments.parameters.session_id).toBe('sess-2');
+    expect(retryBody.params.arguments.session_id).toBe('sess-2');
   });
 });
