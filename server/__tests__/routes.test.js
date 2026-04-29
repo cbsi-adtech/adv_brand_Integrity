@@ -3,15 +3,25 @@ import express from 'express';
 import request from 'supertest';
 import { createRouter } from '../routes.js';
 
-const SCALAR_BRAND_XML = `<?xml version="1.0"?>
-<brand><id>67890</id><name>Geico</name><industry_id>5249</industry_id></brand>`;
+// Real FW V3 brand response shape returned by `invoke_tool` for sh_1_1_show-a-brand
+const FAKE_BRAND_PAYLOAD = {
+  brand: {
+    id: '67890',
+    name: 'Geico (Brand)',
+    status: 'ACTIVE',
+    industry: { industry_id: '5249' },
+    global_mapping: { entity_id: '999', entity_type: 'GLOBAL_BRAND' },
+  },
+};
 
 function makeFakeFw({ updateImpl } = {}) {
   return {
     sessionId: 'sess-1',
     sessionEstablishedAt: '2026-04-29T00:00:00Z',
     invoke: vi.fn().mockImplementation(async (toolName, params) => {
-      if (toolName === 'sh_1_1_show-a-brand') return SCALAR_BRAND_XML;
+      if (toolName === 'sh_1_1_show-a-brand') {
+        return JSON.parse(JSON.stringify(FAKE_BRAND_PAYLOAD));
+      }
       if (toolName === 'sh_1_1_update-a-brand') {
         if (updateImpl) return updateImpl(params);
         return { ok: true };
@@ -52,7 +62,8 @@ describe('POST /api/changes/apply', () => {
     expect(res.body.results[0].status).toBe('ok');
     expect(fw.invoke).toHaveBeenCalledWith('sh_1_1_show-a-brand', expect.objectContaining({ advertiser_id: 12345, brand_id: 67890 }));
     const updateCall = fw.invoke.mock.calls.find(([name]) => name === 'sh_1_1_update-a-brand');
-    expect(updateCall[1].body).toMatch(/<industry_id>5251<\/industry_id>/);
+    expect(updateCall[1].body).toMatch(/<industry>\s*<industry_id>5251<\/industry_id>\s*<\/industry>/);
+    expect(updateCall[1].body).not.toMatch(/5249/);
   });
 
   it('reports per-row failure but continues with later rows', async () => {

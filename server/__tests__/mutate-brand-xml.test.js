@@ -2,41 +2,68 @@ import { describe, it, expect } from 'vitest';
 import { mutateBrandIndustry } from '../mutate-brand-xml.js';
 
 describe('mutateBrandIndustry', () => {
-  it('replaces a scalar <industry_id> element', () => {
-    const before = `<?xml version="1.0"?>
-<brand>
-  <id>67890</id>
-  <name>Geico</name>
-  <industry_id>5249</industry_id>
-</brand>`;
-
-    const after = mutateBrandIndustry(before, 5251);
-    expect(after).toMatch(/<industry_id>\s*5251\s*<\/industry_id>/);
-    expect(after).not.toMatch(/5249/);
-    expect(after).toMatch(/<name>Geico<\/name>/);
+  it('writes a single industry_id when brand currently has scalar industry', () => {
+    // Real FW shape: J&J / Aveeno
+    const before = {
+      brand: {
+        id: '179073',
+        name: 'Aveeno Lotion (Brand)',
+        status: 'ACTIVE',
+        industry: { industry_id: '5063' },
+        global_mapping: { entity_id: '1017972', entity_type: 'GLOBAL_BRAND' },
+      },
+    };
+    const xml = mutateBrandIndustry(before, 5251);
+    expect(xml).toMatch(/<industry>\s*<industry_id>5251<\/industry_id>\s*<\/industry>/);
+    expect(xml).not.toMatch(/5063/);
+    expect(xml).toMatch(/<name>Aveeno Lotion \(Brand\)<\/name>/);
+    expect(xml).toMatch(/<global_mapping>/);
   });
 
-  it('replaces the entry inside an <industries> list', () => {
-    const before = `<?xml version="1.0"?>
-<brand>
-  <id>67890</id>
-  <industries>
-    <industry id="5249"/>
-  </industries>
-</brand>`;
-
-    const after = mutateBrandIndustry(before, 5251);
-    expect(after).toMatch(/id="5251"/);
-    expect(after).not.toMatch(/5249/);
+  it('replaces an array industry with a single new id', () => {
+    // Real FW shape: Papelera Del Plata (multi-industry brand)
+    const before = {
+      brand: {
+        id: '270681',
+        name: 'Papelera Del Plata',
+        industry: { industry_id: ['9356', '389'] },
+      },
+    };
+    const xml = mutateBrandIndustry(before, 5251);
+    expect(xml).toMatch(/<industry>\s*<industry_id>5251<\/industry_id>\s*<\/industry>/);
+    expect(xml).not.toMatch(/9356/);
+    expect(xml).not.toMatch(/389/);
   });
 
-  it('throws when no industry field is present', () => {
-    const before = `<?xml version="1.0"?><brand><id>1</id></brand>`;
-    expect(() => mutateBrandIndustry(before, 5251)).toThrow(/no industry field/i);
+  it('writes industry when brand currently has industry: null (overrides advertiser inheritance)', () => {
+    // Real FW shape: Carvana — brand inherits advertiser industry until brand-level is set
+    const before = {
+      brand: {
+        id: '178687',
+        name: 'Carvana (Brand)',
+        status: 'ACTIVE',
+        industry: null,
+        global_mapping: { entity_id: '1066463', entity_type: 'GLOBAL_BRAND' },
+      },
+    };
+    const xml = mutateBrandIndustry(before, 5251);
+    expect(xml).toMatch(/<industry>\s*<industry_id>5251<\/industry_id>\s*<\/industry>/);
+    expect(xml).toMatch(/<name>Carvana \(Brand\)<\/name>/);
+  });
+
+  it('accepts a bare brand object (no { brand } wrapper)', () => {
+    const before = { id: '1', name: 'X', industry: null };
+    const xml = mutateBrandIndustry(before, 42);
+    expect(xml).toMatch(/<industry>\s*<industry_id>42<\/industry_id>\s*<\/industry>/);
   });
 
   it('throws when given a non-numeric new id', () => {
-    const before = `<?xml version="1.0"?><brand><industry_id>1</industry_id></brand>`;
-    expect(() => mutateBrandIndustry(before, 'abc')).toThrow(/numeric/i);
+    expect(() => mutateBrandIndustry({ brand: { id: '1', industry: null } }, 'abc'))
+      .toThrow(/numeric/i);
+  });
+
+  it('throws when payload is not an object', () => {
+    expect(() => mutateBrandIndustry(null, 5251)).toThrow(/object/i);
+    expect(() => mutateBrandIndustry('xml', 5251)).toThrow(/object/i);
   });
 });

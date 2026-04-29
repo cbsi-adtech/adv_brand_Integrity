@@ -45,16 +45,15 @@ export function createRouter({ fw, environment }) {
         new_industry_id: change.new_industry_id,
       };
       try {
-        const xml = await fw.invoke('sh_1_1_show-a-brand', {
+        const brandPayload = await fw.invoke('sh_1_1_show-a-brand', {
           advertiser_id: change.v3_advertiser_id,
           brand_id: change.v3_brand_id,
         });
-        const xmlString = typeof xml === 'string' ? xml : String(xml);
-        const mutated = mutateBrandIndustry(xmlString, change.new_industry_id);
+        const mutatedXml = mutateBrandIndustry(brandPayload, change.new_industry_id);
         await fw.invoke('sh_1_1_update-a-brand', {
           advertiser_id: change.v3_advertiser_id,
           brand_id: change.v3_brand_id,
-          body: mutated,
+          body: mutatedXml,
         });
         results.push({ ...base, status: 'ok' });
         await appendAudit({
