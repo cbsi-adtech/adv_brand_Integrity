@@ -335,10 +335,28 @@ export default function Dashboard() {
 
   const handlePaste = (kind, text) => {
     try {
+      if (kind !== 'unmapped' && Object.keys(pending).length > 0) {
+        if (!window.confirm(`Discard ${Object.keys(pending).length} pending changes before loading new data?`)) {
+          return;
+        }
+        setPending({});
+      }
       const parsed = parseCsv(text);
       if (!parsed || parsed.length === 0) return alert('No rows parsed.');
-      if (kind === 'unmapped') setUnmapped(parsed);
-      else setMismatchRaw(parsed);
+      if (kind === 'unmapped') {
+        setUnmapped(parsed);
+      } else {
+        // v3 column validation
+        const missing = parsed.filter((r) => r.v3_advertiser_id == null || r.v3_brand_id == null);
+        if (missing.length > 0 && missing.length === parsed.length) {
+          window.alert('CSV is missing v3_advertiser_id / v3_brand_id columns. Re-export with the updated power query (see DATA_SCHEMA.md).');
+          return;
+        }
+        if (missing.length > 0) {
+          console.warn(`${missing.length} rows missing v3 mapping; their AM Industry cells will be read-only.`);
+        }
+        setMismatchRaw(parsed);
+      }
       setDataSource('bq');
     } catch (e) {
       alert('Parse error: ' + e.message);
@@ -383,6 +401,16 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      <PendingBar
+        count={Object.keys(pending).length}
+        onReview={() => setReviewOpen(true)}
+        onDiscardAll={() => {
+          if (window.confirm(`Discard ${Object.keys(pending).length} pending changes?`)) {
+            setPending({});
+          }
+        }}
+      />
 
       <main className="max-w-[1600px] mx-auto px-6 py-6">
         <div className="grid grid-cols-5 gap-4 mb-6">
@@ -598,6 +626,33 @@ const TAXONOMY_DETAIL = (() => {
 })();
 
 function getTaxDetail(id) { return TAXONOMY_DETAIL.get(id); }
+
+function PendingBar({ count, onReview, onDiscardAll }) {
+  if (count === 0) return null;
+  return (
+    <div className="sticky top-0 z-30 bg-amber-50 border-y border-amber-200 px-6 py-2 flex items-center justify-between">
+      <div className="text-sm text-amber-900">
+        <strong>{count}</strong> pending change{count === 1 ? '' : 's'}
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onReview}
+          className="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+        >
+          Review &amp; Apply
+        </button>
+        <button
+          type="button"
+          onClick={onDiscardAll}
+          className="text-sm px-3 py-1 rounded text-amber-900 hover:bg-amber-100"
+        >
+          Discard all
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert }) {
   const [open, setOpen] = useState(false);
