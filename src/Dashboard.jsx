@@ -357,14 +357,10 @@ export default function Dashboard() {
       if (kind === 'unmapped') {
         setUnmapped(parsed);
       } else {
-        // v3 column validation
+        // v3 column visibility check — never blocks, only informs.
         const missing = parsed.filter((r) => r.v3_advertiser_id == null || r.v3_brand_id == null);
-        if (missing.length > 0 && missing.length === parsed.length) {
-          window.alert('CSV is missing v3_advertiser_id / v3_brand_id columns. Re-export with the updated power query (see DATA_SCHEMA.md).');
-          return;
-        }
         if (missing.length > 0) {
-          console.warn(`${missing.length} rows missing v3 mapping; their AM Industry cells will be read-only.`);
+          console.warn(`${missing.length}/${parsed.length} rows have no V3 brand mapping; their AM Industry cells will be read-only until v3_advertiser_id/v3_brand_id are populated.`);
         }
         setMismatchRaw(parsed);
       }
