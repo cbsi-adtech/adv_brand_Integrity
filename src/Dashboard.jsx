@@ -549,6 +549,36 @@ export default function Dashboard() {
                         return rest;
                       });
                     }}
+                    onResolveRow={async (row) => {
+                      const res = await fetch('/api/resolve-v3', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          items: [{
+                            global_brand_id: row.global_brand_id,
+                            global_brand_nm: row.global_brand_nm,
+                            global_advertiser_nm: row.global_advertiser_nm,
+                          }],
+                        }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+                      const m = (data.results || []).find(
+                        (r) => String(r.global_brand_id) === String(row.global_brand_id) && r.v3_advertiser_id != null && r.v3_brand_id != null
+                      );
+                      if (!m) return false;
+                      setMismatchRaw((rows) => rows.map((rr) => {
+                        if (String(rr.global_brand_id) !== String(row.global_brand_id)) return rr;
+                        return {
+                          ...rr,
+                          v3_advertiser_id: m.v3_advertiser_id,
+                          v3_brand_id: m.v3_brand_id,
+                          pmnt_advertiser_nm: rr.pmnt_advertiser_nm || m.v3_advertiser_nm,
+                          pmnt_brand_nm: rr.pmnt_brand_nm || m.v3_brand_nm,
+                        };
+                      }));
+                      return true;
+                    }}
                   />}
             </div>
           </>
@@ -778,9 +808,11 @@ function PendingBar({ count, onReview, onDiscardAll }) {
   );
 }
 
-function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert }) {
+function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onResolveRow }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [resolvingThisRow, setResolvingThisRow] = useState(false);
+  const [resolveError, setResolveError] = useState(null);
   const canEdit = row.v3_advertiser_id != null && row.v3_brand_id != null && industries?.assignable?.length > 0;
 
   const display = pendingEntry
@@ -798,10 +830,45 @@ function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert }) {
   }, [industries, query]);
 
   if (!canEdit) {
+    if (!industries?.assignable?.length) {
+      return (
+        <span title="Loading taxonomy…">
+          <IndustryChip id={display.id} name={display.name} klass={row.am_id_class} highlight={row.status === 'mismatch'} />
+        </span>
+      );
+    }
+    const canResolve = typeof onResolveRow === 'function' && row.global_brand_id != null && row.global_advertiser_nm;
     return (
-      <span title={industries?.assignable?.length ? 'No V3 brand mapping — re-export with v3_advertiser_id/v3_brand_id' : 'Loading taxonomy…'}>
+      <div className="inline-flex items-center gap-2">
         <IndustryChip id={display.id} name={display.name} klass={row.am_id_class} highlight={row.status === 'mismatch'} />
-      </span>
+        {canResolve && (
+          <button
+            type="button"
+            disabled={resolvingThisRow}
+            onClick={async () => {
+              setResolveError(null);
+              setResolvingThisRow(true);
+              try {
+                const ok = await onResolveRow(row);
+                if (ok) {
+                  setOpen(true);
+                } else {
+                  setResolveError('No V3 match found');
+                }
+              } catch (err) {
+                setResolveError(err?.message || 'resolve failed');
+              } finally {
+                setResolvingThisRow(false);
+              }
+            }}
+            className="text-[11px] px-2 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+            title="Look up this brand's V3 IDs in FreeWheel so the industry can be edited"
+          >
+            {resolvingThisRow ? 'Resolving…' : 'Resolve V3'}
+          </button>
+        )}
+        {resolveError && <span className="text-[11px] text-red-700" title={resolveError}>✗</span>}
+      </div>
     );
   }
 
@@ -858,7 +925,7 @@ function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert }) {
   );
 }
 
-function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries, pending, onPick, onRevert }) {
+function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries, pending, onPick, onRevert, onResolveRow }) {
   return (
     <table className="w-full">
       <thead>
@@ -895,6 +962,7 @@ function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries
                   pendingEntry={pending[`${r.v3_advertiser_id}:${r.v3_brand_id}`]}
                   onPick={(ind) => onPick(r, ind)}
                   onRevert={() => onRevert(r)}
+                  onResolveRow={onResolveRow}
                 />
               </td>
               <td className="px-3 py-3"><IndustryChip id={r.gb_industry_id} name={r.gb_industry_nm} klass={r.gb_id_class} onClick={onIndustryClick} highlight={r.status === 'mismatch'} canonical /></td>
