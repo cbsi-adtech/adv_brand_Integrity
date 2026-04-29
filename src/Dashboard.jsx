@@ -191,6 +191,8 @@ const fmt = {
   },
 };
 
+// Coerce a value to a safe integer, returning null for empty/non-integer inputs.
+// Handles BQ export quirks: "12345.0" → 12345, "" → null, null → null.
 function coerceInt(v) {
   if (v == null || v === '') return null;
   const n = Number(v);
