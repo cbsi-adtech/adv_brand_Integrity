@@ -496,6 +496,61 @@ export default function Dashboard() {
 
       {drawerOpen && <DataDrawer onClose={() => setDrawerOpen(false)} onPaste={handlePaste} onReset={resetToMock} />}
       {browserOpen && <IndustryBrowser onClose={() => setBrowserOpen(false)} />}
+      <ReviewModal
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        pending={pending}
+        environment={healthEnv}
+        applying={applying}
+        onApply={async () => {
+          setApplying(true);
+          // Capture names before clearing, since BFF only echoes IDs
+          const pendingNamesByKey = {};
+          for (const [k, v] of Object.entries(pending)) {
+            pendingNamesByKey[k] = v.new_industry_name;
+          }
+          try {
+            const res = await fetch('/api/changes/apply', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ changes: Object.values(pending) }),
+            });
+            const data = await res.json();
+            // Enrich results with names from our local pending state
+            data.results = data.results.map((r) => ({
+              ...r,
+              new_industry_name: pendingNamesByKey[`${r.v3_advertiser_id}:${r.v3_brand_id}`] || r.new_industry_name,
+            }));
+            const okKeys = new Set(
+              data.results
+                .filter((r) => r.status === 'ok')
+                .map((r) => `${r.v3_advertiser_id}:${r.v3_brand_id}`)
+            );
+            if (okKeys.size > 0) {
+              setMismatchRaw((rows) => rows.map((row) => {
+                const k = row.v3_advertiser_id != null && row.v3_brand_id != null
+                  ? `${row.v3_advertiser_id}:${row.v3_brand_id}` : null;
+                if (!k || !okKeys.has(k)) return row;
+                const change = data.results.find((r) => `${r.v3_advertiser_id}:${r.v3_brand_id}` === k);
+                return { ...row, am_industry_id: change.new_industry_id, am_industry_nm: change.new_industry_name || row.am_industry_nm };
+              }));
+              setPending((prev) => {
+                const next = { ...prev };
+                for (const k of okKeys) delete next[k];
+                return next;
+              });
+            }
+            setResults(data);
+            setReviewOpen(false);
+          } catch (err) {
+            setResults({ environment: healthEnv, results: Object.values(pending).map((p) => ({ ...p, status: 'error', error: err.message })) });
+            setReviewOpen(false);
+          } finally {
+            setApplying(false);
+          }
+        }}
+      />
+      <ResultsModal data={results} onClose={() => setResults(null)} />
     </div>
   );
 }
@@ -1169,6 +1224,99 @@ function StatusPill({ status }) {
     direct_only: ['bg-slate-100 text-slate-700', 'Direct-only'],
   }[status] || ['bg-slate-100 text-slate-700', status || '—'];
   return <span className={`text-xs font-medium px-2 py-0.5 rounded ${cfg[0]}`}>{cfg[1]}</span>;
+}
+
+// ─── ReviewModal ─────────────────────────────────────────────
+function ReviewModal({ open, onClose, pending, environment, onApply, applying }) {
+  if (!open) return null;
+  const items = Object.values(pending);
+  const isProd = (environment || '').toLowerCase() === 'production';
+  const envCls = isProd ? 'text-red-700' : 'text-emerald-700';
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center p-6" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-base font-semibold">Review &amp; Apply</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className={`text-sm font-semibold uppercase tracking-wider ${envCls}`}>
+            Environment: {(environment || 'unknown').toUpperCase()}
+          </div>
+          <ul className="divide-y divide-slate-100 border border-slate-100 rounded">
+            {items.map((it) => (
+              <li key={`${it.v3_advertiser_id}:${it.v3_brand_id}`} className="px-3 py-2 text-sm flex items-center justify-between gap-3">
+                <div className="font-medium text-slate-900 truncate">{it.brand_name}</div>
+                <div className="text-slate-500 truncate">
+                  <span className="line-through">{it.current_industry_id}</span>
+                  <span className="mx-2">→</span>
+                  <span className="text-slate-900 font-medium">{it.new_industry_name} <span className="text-slate-400 tabular-nums">{it.new_industry_id}</span></span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button onClick={onClose} disabled={applying} className="text-sm px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100">Cancel</button>
+          <button
+            onClick={onApply}
+            disabled={applying || items.length === 0}
+            className={`text-sm px-3 py-1.5 rounded text-white uppercase tracking-wider font-semibold ${isProd ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'} disabled:opacity-50`}
+          >
+            {applying ? 'Applying…' : `Apply ${items.length} change${items.length === 1 ? '' : 's'} to ${(environment || '').toUpperCase()}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ResultsModal ─────────────────────────────────────────────
+function ResultsModal({ data, onClose }) {
+  if (!data) return null;
+  const { results = [], environment } = data;
+  const ok = results.filter((r) => r.status === 'ok').length;
+  const fail = results.length - ok;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center p-6" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-base font-semibold">Apply results · {(environment || '').toUpperCase()}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="text-sm">
+            <span className="text-emerald-700 font-semibold">{ok} succeeded</span>
+            {fail > 0 && <> · <span className="text-red-700 font-semibold">{fail} failed</span></>}
+          </div>
+          <ul className="divide-y divide-slate-100 border border-slate-100 rounded">
+            {results.map((r, i) => (
+              <li key={i} className="px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className={r.status === 'ok' ? 'text-emerald-700' : 'text-red-700'}>
+                      {r.status === 'ok' ? '✓' : '✗'}
+                    </span>
+                    <span className="font-medium text-slate-900">{r.brand_name}</span>
+                    <span className="text-slate-400 text-xs tabular-nums">{r.v3_brand_id}</span>
+                  </div>
+                  <div className="text-slate-500 text-xs tabular-nums">{r.current_industry_id} → {r.new_industry_id}</div>
+                </div>
+                {r.status === 'error' && (
+                  <div className="text-xs text-red-700 mt-1">{r.error}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end">
+          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded bg-slate-900 text-white hover:bg-slate-800">Close</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Industry Browser ────────────────────────────────────────
