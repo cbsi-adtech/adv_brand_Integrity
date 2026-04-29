@@ -191,6 +191,12 @@ const fmt = {
   },
 };
 
+function coerceInt(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) ? n : null;
+}
+
 function parseCsv(text) {
   const lines = text.trim().split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
@@ -206,6 +212,9 @@ function parseCsv(text) {
       const n = Number(raw);
       row[h] = raw === '' ? null : (raw !== '' && !isNaN(n) && n !== Infinity) ? n : raw;
     });
+    // Explicitly coerce v3 ID columns to integers so Number.isInteger checks are robust
+    row.v3_advertiser_id = coerceInt(row.v3_advertiser_id);
+    row.v3_brand_id = coerceInt(row.v3_brand_id);
     return row;
   });
 }
