@@ -1,14 +1,13 @@
 import { Router } from 'express';
 
-export function createRouter() {
+export function createRouter({ fw, environment }) {
   const router = Router();
 
   router.get('/health', (req, res) => {
     res.json({
-      environment: process.env.FW_ENVIRONMENT || 'unknown',
-      loggedIn: false,
-      sessionExpiresAt: null,
-      error: 'not yet implemented',
+      environment,
+      loggedIn: Boolean(fw.sessionId),
+      sessionEstablishedAt: fw.sessionEstablishedAt,
     });
   });
 
