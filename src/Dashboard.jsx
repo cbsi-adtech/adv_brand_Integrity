@@ -351,27 +351,22 @@ export default function Dashboard() {
       : null;
   }
 
-  // Enrich mismatch rows with computed names + status. The BigQuery query gives
-  // us offset-0 of FW's expanded hierarchy array, which can be a child of the
-  // actually-assigned industry. Walk to depth-0 root for display + comparison
-  // (per DATA_SCHEMA.md gotcha #1).
-  const mismatch = useMemo(() => mismatchRaw.map(r => {
-    const am = walkToRoot(r.am_industry_id);
-    const gb = walkToRoot(r.gb_industry_id);
-    const ind = walkToRoot(r.ind_industry_id);
-    const rooted = { ...r, am_industry_id: am, gb_industry_id: gb, ind_industry_id: ind };
-    return {
-      ...rooted,
-      am_industry_nm: industryName(am),
-      gb_industry_nm: industryName(gb),
-      ind_industry_nm: industryName(ind),
-      am_id_class: classifyId(am),
-      gb_id_class: classifyId(gb),
-      ind_id_class: classifyId(ind),
-      status: rowStatus(rooted),
-      indirect_overridden: indirectOverridden(rooted),
-    };
-  }), [mismatchRaw]);
+  // Enrich mismatch rows with computed names + status.
+  // Use BigQuery offset-0 values as-is — FW stores the assigned industry
+  // first in the expanded hierarchy array, so offset-0 IS the actual assignment.
+  // walkToRoot was previously applied here but it erased precision for brands
+  // assigned at depth-1/2 (e.g. Wegovy → 5182 "Weight loss", not 78 "Healthcare").
+  const mismatch = useMemo(() => mismatchRaw.map(r => ({
+    ...r,
+    am_industry_nm: industryName(r.am_industry_id),
+    gb_industry_nm: industryName(r.gb_industry_id),
+    ind_industry_nm: industryName(r.ind_industry_id),
+    am_id_class: classifyId(r.am_industry_id),
+    gb_id_class: classifyId(r.gb_industry_id),
+    ind_id_class: classifyId(r.ind_industry_id),
+    status: rowStatus(r),
+    indirect_overridden: indirectOverridden(r),
+  })), [mismatchRaw]);
 
   const kpis = useMemo(() => {
     const totalUnmapped = unmapped.length;
