@@ -618,6 +618,45 @@ export default function Dashboard() {
                       }));
                       return true;
                     }}
+                    onApplyOne={async (row, change) => {
+                      const res = await fetch('/api/changes/apply', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          changes: [{
+                            v3_advertiser_id: row.v3_advertiser_id,
+                            v3_brand_id: row.v3_brand_id,
+                            brand_name: row.global_brand_nm,
+                            current_industry_id: row.am_industry_id,
+                            new_industry_id: change.new_industry_id,
+                          }],
+                        }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        return { status: 'error', error: data?.error || `HTTP ${res.status}` };
+                      }
+                      const result = data?.results?.[0];
+                      if (!result) return { status: 'error', error: 'no result returned' };
+                      if (result.status === 'ok') {
+                        const key = pendingKey(row);
+                        setMismatchRaw((rows) => rows.map((rr) => {
+                          if (rr.v3_advertiser_id !== row.v3_advertiser_id || rr.v3_brand_id !== row.v3_brand_id) return rr;
+                          return {
+                            ...rr,
+                            am_industry_id: change.new_industry_id,
+                            am_industry_nm: change.new_industry_name || rr.am_industry_nm,
+                          };
+                        }));
+                        if (key) {
+                          setPending((prev) => {
+                            const { [key]: _drop, ...rest } = prev;
+                            return rest;
+                          });
+                        }
+                      }
+                      return result;
+                    }}
                   />}
             </div>
           </>
@@ -847,11 +886,13 @@ function PendingBar({ count, onReview, onDiscardAll }) {
   );
 }
 
-function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onResolveRow }) {
+function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onResolveRow, onApplyOne }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [resolvingThisRow, setResolvingThisRow] = useState(false);
   const [resolveError, setResolveError] = useState(null);
+  const [savingThisRow, setSavingThisRow] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const canEdit = row.v3_advertiser_id != null && row.v3_brand_id != null && industries?.assignable?.length > 0;
 
   const display = pendingEntry
@@ -924,12 +965,40 @@ function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onR
         )}
       </button>
       {pendingEntry && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onRevert(); }}
-          className="ml-1 text-slate-400 hover:text-slate-700 text-xs"
-          title="Discard this pending change"
-        >↺</button>
+        <>
+          <button
+            type="button"
+            disabled={savingThisRow}
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (typeof onApplyOne !== 'function') return;
+              setSaveError(null);
+              setSavingThisRow(true);
+              try {
+                const result = await onApplyOne(row, pendingEntry);
+                if (result?.status !== 'ok') {
+                  setSaveError(result?.error || 'apply failed');
+                }
+              } catch (err) {
+                setSaveError(err?.message || 'apply failed');
+              } finally {
+                setSavingThisRow(false);
+              }
+            }}
+            className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+            title="Push this change to FreeWheel"
+          >
+            {savingThisRow ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            type="button"
+            disabled={savingThisRow}
+            onClick={(e) => { e.stopPropagation(); onRevert(); }}
+            className="ml-1 text-slate-400 hover:text-slate-700 text-xs disabled:opacity-40"
+            title="Discard this pending change"
+          >↺</button>
+          {saveError && <span className="ml-2 text-[11px] text-red-700" title={saveError}>✗ {saveError}</span>}
+        </>
       )}
       {open && (
         <div className="absolute z-50 mt-1 left-0 w-80 bg-white border border-slate-200 rounded-md shadow-lg">
@@ -964,7 +1033,7 @@ function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onR
   );
 }
 
-function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries, pending, onPick, onRevert, onResolveRow }) {
+function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries, pending, onPick, onRevert, onResolveRow, onApplyOne }) {
   return (
     <table className="w-full">
       <thead>
@@ -1002,6 +1071,7 @@ function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries
                   onPick={(ind) => onPick(r, ind)}
                   onRevert={() => onRevert(r)}
                   onResolveRow={onResolveRow}
+                  onApplyOne={onApplyOne}
                 />
               </td>
               <td className="px-3 py-3"><IndustryChip id={r.gb_industry_id} name={r.gb_industry_nm} klass={r.gb_id_class} onClick={onIndustryClick} highlight={r.status === 'mismatch'} canonical /></td>
