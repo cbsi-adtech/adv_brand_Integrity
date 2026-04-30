@@ -40,34 +40,24 @@ function industryName(id) {
   return `[UNKNOWN ${id}]`;
 }
 
-// FW stores the full ancestor/descendant chain in global_industry_ids[]; the
-// BigQuery query gives us the offset-0 element, which can be a child even when
-// the brand is assigned at depth 0. Walk up the taxonomy by parsing the name
-// path ("Parent > Child > Grand") so display always shows the root industry.
-const PARENT_OF = (() => {
-  const byName = new Map();
-  for (const [id, name] of FW_INDUSTRIES) byName.set(name, id);
-  const m = new Map();
-  for (const [id, name, depth] of FW_INDUSTRIES) {
-    if (depth === 0) continue;
-    const parts = name.split(' > ');
-    if (parts.length < 2) continue;
-    const parentName = parts.slice(0, -1).join(' > ');
-    const parentId = byName.get(parentName);
-    if (parentId != null) m.set(id, parentId);
+// Resolve the actual assigned industry from a pipe-delimited string of FW
+// global_industry_ids (e.g. "5377|24|5378|5379").
+// FW stores the full subtree of the assigned industry in the array — the root
+// of that subtree (minimum depth = the actual assignment) is what we want.
+function resolveFromPipeString(pipeStr) {
+  if (!pipeStr || typeof pipeStr !== 'string') return null;
+  let minDepth = Infinity;
+  let minId = null;
+  for (const part of pipeStr.split('|')) {
+    const id = Number(part.trim());
+    if (!id || isNaN(id)) continue;
+    const entry = INDUSTRY_BY_ID.get(id);
+    if (entry && entry.depth < minDepth) {
+      minDepth = entry.depth;
+      minId = id;
+    }
   }
-  return m;
-})();
-
-function walkToRoot(id) {
-  if (id == null) return id;
-  let cur = id;
-  for (let i = 0; i < 6; i++) {
-    const parent = PARENT_OF.get(cur);
-    if (parent == null) return cur;
-    cur = parent;
-  }
-  return cur;
+  return minId;
 }
 
 // ─── MOCK DATA — using REAL FreeWheel industry IDs ───
@@ -352,21 +342,31 @@ export default function Dashboard() {
   }
 
   // Enrich mismatch rows with computed names + status.
-  // Use BigQuery offset-0 values as-is — FW stores the assigned industry
-  // first in the expanded hierarchy array, so offset-0 IS the actual assignment.
-  // walkToRoot was previously applied here but it erased precision for brands
-  // assigned at depth-1/2 (e.g. Wegovy → 5182 "Weight loss", not 78 "Healthcare").
-  const mismatch = useMemo(() => mismatchRaw.map(r => ({
-    ...r,
-    am_industry_nm: industryName(r.am_industry_id),
-    gb_industry_nm: industryName(r.gb_industry_id),
-    ind_industry_nm: industryName(r.ind_industry_id),
-    am_id_class: classifyId(r.am_industry_id),
-    gb_id_class: classifyId(r.gb_industry_id),
-    ind_id_class: classifyId(r.ind_industry_id),
-    status: rowStatus(r),
-    indirect_overridden: indirectOverridden(r),
-  })), [mismatchRaw]);
+  // AM industry: prefer am_applied_industry_ids_raw (pipe string from the updated
+  // query) which lets us find the min-depth entry = the actual FW assignment.
+  // Falls back to the am_industry_id scalar for old CSVs that don't have the pipe
+  // string column — offset-0 is then used as-is (known limitation).
+  const mismatch = useMemo(() => mismatchRaw.map(r => {
+    const am = (r.am_applied_industry_ids_raw != null)
+      ? resolveFromPipeString(String(r.am_applied_industry_ids_raw))
+      : r.am_industry_id ?? null;
+    const gb = r.gb_industry_id ?? null;
+    const ind = (r.ind_applied_industry_ids_raw != null)
+      ? resolveFromPipeString(String(r.ind_applied_industry_ids_raw))
+      : r.ind_industry_id ?? null;
+    const enriched = { ...r, am_industry_id: am, gb_industry_id: gb, ind_industry_id: ind };
+    return {
+      ...enriched,
+      am_industry_nm: industryName(am),
+      gb_industry_nm: industryName(gb),
+      ind_industry_nm: industryName(ind),
+      am_id_class: classifyId(am),
+      gb_id_class: classifyId(gb),
+      ind_id_class: classifyId(ind),
+      status: rowStatus(enriched),
+      indirect_overridden: indirectOverridden(enriched),
+    };
+  }), [mismatchRaw]);
 
   const kpis = useMemo(() => {
     const totalUnmapped = unmapped.length;
