@@ -40,6 +40,36 @@ function industryName(id) {
   return `[UNKNOWN ${id}]`;
 }
 
+// FW stores the full ancestor/descendant chain in global_industry_ids[]; the
+// BigQuery query gives us the offset-0 element, which can be a child even when
+// the brand is assigned at depth 0. Walk up the taxonomy by parsing the name
+// path ("Parent > Child > Grand") so display always shows the root industry.
+const PARENT_OF = (() => {
+  const byName = new Map();
+  for (const [id, name] of FW_INDUSTRIES) byName.set(name, id);
+  const m = new Map();
+  for (const [id, name, depth] of FW_INDUSTRIES) {
+    if (depth === 0) continue;
+    const parts = name.split(' > ');
+    if (parts.length < 2) continue;
+    const parentName = parts.slice(0, -1).join(' > ');
+    const parentId = byName.get(parentName);
+    if (parentId != null) m.set(id, parentId);
+  }
+  return m;
+})();
+
+function walkToRoot(id) {
+  if (id == null) return id;
+  let cur = id;
+  for (let i = 0; i < 6; i++) {
+    const parent = PARENT_OF.get(cur);
+    if (parent == null) return cur;
+    cur = parent;
+  }
+  return cur;
+}
+
 // ─── MOCK DATA — using REAL FreeWheel industry IDs ───
 // All IDs verified against canonical taxonomy.
 // Mismatches model real Paramount AM-vs-FW disagreement patterns.
@@ -296,18 +326,27 @@ export default function Dashboard() {
       : null;
   }
 
-  // Enrich mismatch rows with computed names + status
-  const mismatch = useMemo(() => mismatchRaw.map(r => ({
-    ...r,
-    am_industry_nm: industryName(r.am_industry_id),
-    gb_industry_nm: industryName(r.gb_industry_id),
-    ind_industry_nm: industryName(r.ind_industry_id),
-    am_id_class: classifyId(r.am_industry_id),
-    gb_id_class: classifyId(r.gb_industry_id),
-    ind_id_class: classifyId(r.ind_industry_id),
-    status: rowStatus(r),
-    indirect_overridden: indirectOverridden(r),
-  })), [mismatchRaw]);
+  // Enrich mismatch rows with computed names + status. The BigQuery query gives
+  // us offset-0 of FW's expanded hierarchy array, which can be a child of the
+  // actually-assigned industry. Walk to depth-0 root for display + comparison
+  // (per DATA_SCHEMA.md gotcha #1).
+  const mismatch = useMemo(() => mismatchRaw.map(r => {
+    const am = walkToRoot(r.am_industry_id);
+    const gb = walkToRoot(r.gb_industry_id);
+    const ind = walkToRoot(r.ind_industry_id);
+    const rooted = { ...r, am_industry_id: am, gb_industry_id: gb, ind_industry_id: ind };
+    return {
+      ...rooted,
+      am_industry_nm: industryName(am),
+      gb_industry_nm: industryName(gb),
+      ind_industry_nm: industryName(ind),
+      am_id_class: classifyId(am),
+      gb_id_class: classifyId(gb),
+      ind_id_class: classifyId(ind),
+      status: rowStatus(rooted),
+      indirect_overridden: indirectOverridden(rooted),
+    };
+  }), [mismatchRaw]);
 
   const kpis = useMemo(() => {
     const totalUnmapped = unmapped.length;
