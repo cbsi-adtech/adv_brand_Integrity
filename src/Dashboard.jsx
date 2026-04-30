@@ -229,20 +229,45 @@ function coerceInt(v) {
   return Number.isInteger(n) ? n : null;
 }
 
+// Split a single CSV line into fields, respecting RFC-4180 quoting.
+// Handles fields like "Vinted, UAB Group" and "AMAZON.COM, Inc." that
+// contain commas inside quotes — a naive split(',') would misalign every
+// subsequent column for those rows.
+function splitCsvLine(line, delim) {
+  if (delim === '\t') return line.split('\t');
+  const fields = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuote) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { cur += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { fields.push(cur); cur = ''; }
+      else { cur += ch; }
+    }
+  }
+  fields.push(cur);
+  return fields;
+}
+
 function parseCsv(text) {
   const lines = text.trim().split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
   // Auto-detect delimiter: tab (BQ default export) or comma
   const delim = lines[0].includes('\t') ? '\t' : ',';
-  const headers = lines[0].split(delim).map(h => h.trim().replace(/^"|"$/g, ''));
+  const headers = splitCsvLine(lines[0], delim).map(h => h.trim());
   return lines.slice(1).map(line => {
-    const vals = line.split(delim);
+    const vals = splitCsvLine(line, delim);
     const row = {};
     headers.forEach((h, i) => {
-      const raw = (vals[i] ?? '').trim().replace(/^"|"$/g, '');
+      const raw = (vals[i] ?? '').trim();
       // coerce numerics
       const n = Number(raw);
-      row[h] = raw === '' ? null : (raw !== '' && !isNaN(n) && n !== Infinity) ? n : raw;
+      row[h] = raw === '' ? null : (!isNaN(n) && n !== Infinity) ? n : raw;
     });
     // Explicitly coerce v3 ID columns to integers so Number.isInteger checks are robust
     row.v3_advertiser_id = coerceInt(row.v3_advertiser_id);
