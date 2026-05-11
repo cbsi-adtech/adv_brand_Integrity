@@ -39,6 +39,19 @@ export function DataLoadDialog({ onLoaded }) {
 
       <label className="block mb-2 text-sm font-medium">
         FreeWheel Console Analytics CSV (Programmatic Module)
+        <div className="flex items-center gap-2 my-1">
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setFw(await file.text());
+            }}
+            className="text-xs"
+          />
+          <span className="text-xs text-slate-500">— or paste below</span>
+        </div>
         <textarea className="w-full h-40 border rounded p-2 font-mono text-xs"
           value={fw} onChange={(e) => setFw(e.target.value)} />
       </label>
