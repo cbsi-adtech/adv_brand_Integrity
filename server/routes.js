@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { getIndustryPayload, GROUP_IDS } from './industries.js';
 import { mutateBrandIndustry } from './mutate-brand-xml.js';
-import { appendAudit } from './audit.js';
+import { appendAudit, AUDIT_PATH } from './audit.js';
+import { readRecent } from './audit-read.js';
 import { createResolver } from './v3-resolver.js';
 
 function isValidChange(c) {
@@ -103,6 +104,21 @@ export function createRouter({ fw, environment }) {
     } catch (err) {
       res.status(500).json({ error: err?.message || String(err) });
     }
+  });
+
+  router.get('/audit/recent', async (req, res) => {
+    const requested = Number.parseInt(req.query.limit ?? '50', 10);
+    const limit = Math.min(Math.max(Number.isFinite(requested) ? requested : 50, 1), 500);
+    try {
+      const entries = await readRecent(AUDIT_PATH, limit);
+      res.json({ entries });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/creatives/apply', (_req, res) => {
+    res.status(501).json({ error: 'Programmatic Module creative apply path not implemented yet' });
   });
 
   return router;

@@ -99,3 +99,23 @@ describe('POST /api/changes/apply', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('GET /api/audit/recent', () => {
+  it('returns { entries: [] } when audit file is empty/missing', async () => {
+    const res = await request(buildApp(makeFakeFw())).get('/api/audit/recent?limit=10');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.entries)).toBe(true);
+  });
+
+  it('caps limit at 500', async () => {
+    const res = await request(buildApp(makeFakeFw())).get('/api/audit/recent?limit=9999');
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('POST /api/creatives/apply (stub)', () => {
+  it('returns 501 Not Implemented', async () => {
+    const res = await request(buildApp(makeFakeFw())).post('/api/creatives/apply').send({});
+    expect(res.status).toBe(501);
+  });
+});
