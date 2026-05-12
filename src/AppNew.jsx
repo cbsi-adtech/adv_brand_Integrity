@@ -116,6 +116,14 @@ export default function AppNew() {
     cancelRef.current = true;
   }
 
+  // Manual override — caller already knows the V3 ids. No FW lookup.
+  function setManualV3(globalBrandId, v3AdvertiserId, v3BrandId) {
+    setV3Map((prev) => ({
+      ...prev,
+      [globalBrandId]: { v3_advertiser_id: v3AdvertiserId, v3_brand_id: v3BrandId },
+    }));
+  }
+
   // Resolve V3 ids for a single brand on-demand. Returns the resolved entry
   // (or null on miss); also patches v3Map so the row updates.
   async function resolveOne(globalBrandId) {
@@ -175,7 +183,8 @@ export default function AppNew() {
           onClose={() => setDrawerBrandId(null)} />
       )}
       <PendingChangesBar onReview={() => setReviewOpen(true)} onDiscardAll={clearPending} />
-      <ReviewApplyModal open={reviewOpen} onClose={() => setReviewOpen(false)} rows={rows} onResolveOne={resolveOne} />
+      <ReviewApplyModal open={reviewOpen} onClose={() => setReviewOpen(false)} rows={rows}
+        onResolveOne={resolveOne} onSetManualV3={setManualV3} />
     </div>
   );
 }

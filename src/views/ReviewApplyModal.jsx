@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { usePendingStore } from '../state/pendingStore.js';
 
-export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne }) {
+export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSetManualV3 }) {
   const items = usePendingStore((s) => s.items);
   const setStatus = usePendingStore((s) => s.setStatus);
   const [applying, setApplying] = useState(false);
-  const [resolvingId, setResolvingId] = useState(null);  // global_brand_id currently resolving
+  const [resolvingId, setResolvingId] = useState(null);
   const [resolveError, setResolveError] = useState(null);
+  const [manualForBrand, setManualForBrand] = useState(null);  // global_brand_id currently editing manual entry
+  const [manualAdvId, setManualAdvId] = useState('');
+  const [manualBrandId, setManualBrandId] = useState('');
 
   if (!open) return null;
 
@@ -106,32 +109,84 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne }) {
                     {i.status === 'failed' && i.error?.message && (
                       <div className="text-xs text-red-700 mt-1">{i.error.message}</div>
                     )}
-                    {missingV3 && onResolveOne && (
-                      <div className="mt-1 flex items-center gap-2">
-                        <button
-                          disabled={isResolvingThis}
-                          onClick={async () => {
-                            setResolveError(null);
-                            setResolvingId(i.brand.global_brand_id);
-                            try {
-                              const result = await onResolveOne(i.brand.global_brand_id);
-                              if (!result) {
-                                setResolveError(`Couldn't find a V3 brand for ${i.brand.global_brand_nm}.`);
-                              } else {
-                                // Reset failed → staged so user can re-Apply
+                    {missingV3 && (onResolveOne || onSetManualV3) && (
+                      <div className="mt-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {onResolveOne && (
+                            <button
+                              disabled={isResolvingThis}
+                              onClick={async () => {
+                                setResolveError(null);
+                                setResolvingId(i.brand.global_brand_id);
+                                try {
+                                  const result = await onResolveOne(i.brand.global_brand_id);
+                                  if (!result) {
+                                    setResolveError(`Couldn't find a V3 brand for ${i.brand.global_brand_nm}. Use "Enter V3 ids manually" if you know them.`);
+                                  } else if (i.status === 'failed') {
+                                    setStatus(i.id, 'staged');
+                                  }
+                                } catch (e) {
+                                  setResolveError(e.message);
+                                } finally {
+                                  setResolvingId(null);
+                                }
+                              }}
+                              className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white disabled:opacity-50">
+                              {isResolvingThis ? 'Resolving V3…' : 'Resolve V3 for this brand'}
+                            </button>
+                          )}
+                          {onSetManualV3 && manualForBrand !== i.brand.global_brand_id && (
+                            <button
+                              onClick={() => {
+                                setManualForBrand(i.brand.global_brand_id);
+                                setManualAdvId('');
+                                setManualBrandId('');
+                                setResolveError(null);
+                              }}
+                              className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-800">
+                              Enter V3 ids manually
+                            </button>
+                          )}
+                        </div>
+
+                        {manualForBrand === i.brand.global_brand_id && (
+                          <div className="mt-2 flex items-center gap-2 bg-slate-50 border rounded p-2">
+                            <label className="text-xs">V3 advertiser id
+                              <input type="number" value={manualAdvId}
+                                onChange={(e) => setManualAdvId(e.target.value)}
+                                className="ml-1 border rounded px-1 py-0.5 w-28 text-xs" />
+                            </label>
+                            <label className="text-xs">V3 brand id
+                              <input type="number" value={manualBrandId}
+                                onChange={(e) => setManualBrandId(e.target.value)}
+                                className="ml-1 border rounded px-1 py-0.5 w-28 text-xs" />
+                            </label>
+                            <button
+                              onClick={() => {
+                                const adv = Number.parseInt(manualAdvId, 10);
+                                const brand = Number.parseInt(manualBrandId, 10);
+                                if (!Number.isInteger(adv) || !Number.isInteger(brand)) {
+                                  setResolveError('Both ids must be integers.');
+                                  return;
+                                }
+                                onSetManualV3(i.brand.global_brand_id, adv, brand);
                                 if (i.status === 'failed') setStatus(i.id, 'staged');
-                              }
-                            } catch (e) {
-                              setResolveError(e.message);
-                            } finally {
-                              setResolvingId(null);
-                            }
-                          }}
-                          className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white disabled:opacity-50">
-                          {isResolvingThis ? 'Resolving V3…' : 'Resolve V3 for this brand'}
-                        </button>
+                                setManualForBrand(null);
+                                setResolveError(null);
+                              }}
+                              className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white">
+                              Save
+                            </button>
+                            <button
+                              onClick={() => { setManualForBrand(null); setResolveError(null); }}
+                              className="text-xs px-2 py-0.5 rounded bg-slate-200">
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+
                         {resolveError && resolvingId == null && (
-                          <span className="text-xs text-red-700">{resolveError}</span>
+                          <div className="text-xs text-red-700 mt-1">{resolveError}</div>
                         )}
                       </div>
                     )}
