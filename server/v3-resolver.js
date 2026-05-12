@@ -138,5 +138,20 @@ export function createResolver({ fw }) {
     return results;
   }
 
-  return { resolveOne, resolveAll };
+  async function setManual({ global_brand_id, v3_advertiser_id, v3_brand_id, global_brand_nm, global_advertiser_nm }) {
+    await ensureCache();
+    const key = String(global_brand_id);
+    cache[key] = {
+      global_brand_id,
+      v3_advertiser_id,
+      v3_brand_id,
+      v3_advertiser_nm: global_advertiser_nm ?? null,
+      v3_brand_nm: global_brand_nm ?? null,
+      manual: true,
+    };
+    await saveCache(cache);
+    return cache[key];
+  }
+
+  return { resolveOne, resolveAll, setManual };
 }

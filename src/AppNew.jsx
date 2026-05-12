@@ -117,11 +117,35 @@ export default function AppNew() {
   }
 
   // Manual override — caller already knows the V3 ids. No FW lookup.
-  function setManualV3(globalBrandId, v3AdvertiserId, v3BrandId) {
+  // Persists to server's v3-mapping-cache.json so future sessions get the
+  // mapping for free; if the server call fails, still patch the in-memory
+  // v3Map so the user can apply this session.
+  async function setManualV3(globalBrandId, v3AdvertiserId, v3BrandId) {
     setV3Map((prev) => ({
       ...prev,
       [globalBrandId]: { v3_advertiser_id: v3AdvertiserId, v3_brand_id: v3BrandId },
     }));
+
+    const row = rows.find((r) => r.global_brand_id === globalBrandId);
+    try {
+      const res = await fetch('/api/resolve-v3/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          global_brand_id: globalBrandId,
+          v3_advertiser_id: v3AdvertiserId,
+          v3_brand_id: v3BrandId,
+          global_brand_nm: row?.global_brand_nm,
+          global_advertiser_nm: row?.global_advertiser_nm,
+        }),
+      });
+      if (!res.ok) {
+        const raw = await res.text();
+        console.warn(`Manual V3 save returned ${res.status}: ${raw}`);
+      }
+    } catch (e) {
+      console.warn('Manual V3 save failed (in-memory override still applied):', e.message);
+    }
   }
 
   // Resolve V3 ids for a single brand on-demand. Returns the resolved entry

@@ -87,6 +87,19 @@ export function createRouter({ fw, environment }) {
     res.json({ environment, results });
   });
 
+  router.post('/resolve-v3/manual', async (req, res) => {
+    const { global_brand_id, v3_advertiser_id, v3_brand_id, global_brand_nm, global_advertiser_nm } = req.body || {};
+    if (![global_brand_id, v3_advertiser_id, v3_brand_id].every(Number.isInteger)) {
+      return res.status(400).json({ error: 'global_brand_id, v3_advertiser_id, v3_brand_id must all be integers' });
+    }
+    try {
+      const entry = await resolver.setManual({ global_brand_id, v3_advertiser_id, v3_brand_id, global_brand_nm, global_advertiser_nm });
+      res.json({ entry });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   router.post('/resolve-v3', async (req, res) => {
     const { items } = req.body || {};
     if (!Array.isArray(items) || items.length === 0) {
