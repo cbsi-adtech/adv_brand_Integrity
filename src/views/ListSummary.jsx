@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { FLAG_STYLES, FLAG_FILTER_ORDER, flagKey } from './flagStyles.js';
 
 export function ListSummary({ rows, filteredCount, filters, onFiltersChange,
-                             unresolvedV3Count = 0, resolving = null, onResolveV3 }) {
+                             unresolvedV3Count = 0, resolving = null, onResolveV3, onCancelResolve }) {
   const counts = useMemo(() => {
     const c = {};
     for (const r of rows) {
@@ -42,19 +42,32 @@ export function ListSummary({ rows, filteredCount, filters, onFiltersChange,
             Clear flag filter
           </button>
         )}
-        {unresolvedV3Count > 0 && (
+        {unresolvedV3Count > 0 && !resolving && (
           <button
             onClick={onResolveV3}
-            disabled={!!resolving}
-            className="ml-auto text-xs px-3 py-1 rounded bg-emerald-600 text-white disabled:opacity-50"
-            title="Resolve V3 advertiser/brand IDs for any brand missing them. Required before applying Advertiser Module industry edits."
+            className="ml-auto text-xs px-3 py-1 rounded bg-emerald-600 text-white"
+            title="Resolve V3 advertiser/brand IDs for brands missing them, ordered by priority (F2/F1 first, then impressions). Required before applying Advertiser Module industry edits."
           >
-            {resolving
-              ? `Resolving V3 ids… ${resolving.done.toLocaleString()} / ${resolving.total.toLocaleString()}`
-              : `Resolve V3 ids (${unresolvedV3Count.toLocaleString()} missing)`}
+            Resolve V3 ids ({unresolvedV3Count.toLocaleString()} missing)
           </button>
         )}
       </div>
+
+      {resolving && (
+        <div className="text-xs bg-blue-50 border border-blue-200 rounded px-3 py-2 mb-2 flex items-center gap-3">
+          <span className="font-medium">
+            Resolving V3 ids… {resolving.done.toLocaleString()} / {resolving.total.toLocaleString()}
+          </span>
+          <span className="text-slate-600">✓ {resolving.hits} resolved · ✗ {resolving.misses} not found</span>
+          <span className="text-slate-500 italic flex-1 truncate" title={(resolving.batch ?? []).join(', ')}>
+            current batch: {(resolving.batch ?? []).slice(0, 3).join(', ')}{(resolving.batch ?? []).length > 3 ? '…' : ''}
+          </span>
+          <button onClick={onCancelResolve}
+            className="text-xs px-2 py-0.5 rounded bg-slate-700 text-white">
+            Cancel
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         {FLAG_FILTER_ORDER.map((key) => {
           const count = counts[key] ?? 0;

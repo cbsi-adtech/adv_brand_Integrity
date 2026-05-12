@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { loadTaxonomy } from './data/taxonomy.js';
 import { pivotToCanonical } from './data/canonical.js';
 import { detectFlags } from './flags/detect.js';
@@ -9,12 +9,14 @@ import { DataLoadDialog } from './views/DataLoadDialog.jsx';
 import { BrandDrawer } from './views/drawer/BrandDrawer.jsx';
 import { PendingChangesBar } from './views/PendingChangesBar.jsx';
 import { ReviewApplyModal } from './views/ReviewApplyModal.jsx';
+import { priorityScore } from './views/sort.js';
 
 export default function AppNew() {
   const [taxonomy, setTaxonomy] = useState(null);
   const [records, setRecords] = useState(null);
   const [v3Map, setV3Map] = useState({});            // global_brand_id -> {v3_advertiser_id, v3_brand_id}
-  const [resolving, setResolving] = useState(null);  // null | {done, total}
+  const [resolving, setResolving] = useState(null);  // null | {done, total, batch: [brand names], hits, misses}
+  const cancelRef = useRef(false);
   const [drawerBrandId, setDrawerBrandId] = useState(null);
   const [filters, setFilters] = useState({});
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -56,41 +58,62 @@ export default function AppNew() {
         global_brand_id: r.global_brand_id,
         global_brand_nm: r.global_brand_nm,
         global_advertiser_nm: r.global_advertiser_nm,
-      }));
+        _priority: priorityScore(r),
+      }))
+      .sort((a, b) => b._priority - a._priority);
+
     if (candidates.length === 0) return;
 
-    const BATCH = 200;
-    setResolving({ done: 0, total: candidates.length });
+    const BATCH = 5;
+    cancelRef.current = false;
+    let hits = 0;
+    let misses = 0;
+
+    setResolving({ done: 0, total: candidates.length, batch: candidates.slice(0, BATCH).map((c) => c.global_brand_nm), hits, misses });
+
     try {
       for (let i = 0; i < candidates.length; i += BATCH) {
+        if (cancelRef.current) break;
         const slice = candidates.slice(i, i + BATCH);
+        setResolving({ done: i, total: candidates.length, batch: slice.map((c) => c.global_brand_nm), hits, misses });
+
         const res = await fetch('/api/resolve-v3', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: slice }),
+          body: JSON.stringify({
+            items: slice.map(({ global_brand_id, global_brand_nm, global_advertiser_nm }) =>
+              ({ global_brand_id, global_brand_nm, global_advertiser_nm })),
+          }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
         setV3Map((prev) => {
           const next = { ...prev };
           for (const r of data.results ?? []) {
             if (r.v3_advertiser_id != null && r.v3_brand_id != null) {
-              next[r.global_brand_id] = {
-                v3_advertiser_id: r.v3_advertiser_id,
-                v3_brand_id: r.v3_brand_id,
-              };
+              next[r.global_brand_id] = { v3_advertiser_id: r.v3_advertiser_id, v3_brand_id: r.v3_brand_id };
+              hits++;
+            } else {
+              misses++;
             }
           }
           return next;
         });
-        setResolving({ done: Math.min(i + slice.length, candidates.length), total: candidates.length });
+
+        setResolving({ done: Math.min(i + slice.length, candidates.length), total: candidates.length, batch: slice.map((c) => c.global_brand_nm), hits, misses });
       }
     } catch (e) {
       console.error('V3 resolution failed:', e);
       window.alert(`V3 resolution failed: ${e.message}`);
     } finally {
       setResolving(null);
+      cancelRef.current = false;
     }
+  }
+
+  function cancelResolve() {
+    cancelRef.current = true;
   }
 
   const drawerRow = useMemo(
@@ -112,6 +135,7 @@ export default function AppNew() {
         unresolvedV3Count={unresolvedCount}
         resolving={resolving}
         onResolveV3={resolveV3}
+        onCancelResolve={cancelResolve}
       />
       {drawerRow && (
         <BrandDrawer row={drawerRow} taxonomy={taxonomy}
