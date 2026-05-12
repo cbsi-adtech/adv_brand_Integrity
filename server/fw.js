@@ -35,6 +35,12 @@ function unwrapToolResult(rpc) {
     err.rpc = rpc.error;
     throw err;
   }
+  // MCP allows tools to return BOTH a human-readable `content[0].text` banner
+  // (often "Tool executed successfully…") AND a machine-readable
+  // `structuredContent` object. Prefer the structured one when present.
+  const structured = rpc.result?.structuredContent;
+  if (structured && typeof structured === 'object') return structured;
+
   const content = rpc.result?.content;
   if (!Array.isArray(content) || content.length === 0) return rpc.result;
   const text = content[0]?.text;
