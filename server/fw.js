@@ -1,3 +1,12 @@
+import { XMLParser } from 'fast-xml-parser';
+
+const XML_PARSER = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  parseAttributeValue: false,
+  trimValues: true,
+});
+
 let nextRpcId = 1;
 
 function isAuthError(message) {
@@ -30,11 +39,15 @@ function unwrapToolResult(rpc) {
   if (!Array.isArray(content) || content.length === 0) return rpc.result;
   const text = content[0]?.text;
   if (typeof text !== 'string') return rpc.result;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
+  // 1) JSON
+  try { return JSON.parse(text); } catch { /* fall through */ }
+  // 2) XML (FW V3 brand/advertiser endpoints return XML over the MCP wire)
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith('<')) {
+    try { return XML_PARSER.parse(text); } catch { /* fall through */ }
   }
+  // 3) plain text (e.g. streaming_hub_login banner)
+  return text;
 }
 
 export function createFwClient({ url, username, password, environment, fetchImpl = fetch }) {
