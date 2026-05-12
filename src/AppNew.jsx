@@ -141,8 +141,23 @@ export default function AppNew() {
         }],
       }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+    // Tolerate empty / non-JSON bodies so the user gets a useful message
+    // instead of "Unexpected end of JSON input".
+    const raw = await res.text();
+    let data = null;
+    if (raw) {
+      try { data = JSON.parse(raw); }
+      catch { /* leave data null */ }
+    }
+
+    if (!res.ok) {
+      throw new Error(data?.error || `HTTP ${res.status} ${res.statusText || ''} — ${raw || 'empty body'}`.trim());
+    }
+    if (!data) {
+      throw new Error(`Server returned empty body (HTTP ${res.status}). Check BFF console for a stack trace.`);
+    }
+
     const result = data.results?.[0];
     if (result?.v3_advertiser_id != null && result?.v3_brand_id != null) {
       setV3Map((prev) => ({
@@ -153,6 +168,9 @@ export default function AppNew() {
         },
       }));
       return result;
+    }
+    if (result?.error) {
+      throw new Error(`Server: ${result.error}`);
     }
     return null;
   }
