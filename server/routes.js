@@ -52,6 +52,15 @@ export function createRouter({ fw, environment }) {
           advertiser_id: change.v3_advertiser_id,
           brand_id: change.v3_brand_id,
         });
+        if (brandPayload == null || typeof brandPayload !== 'object') {
+          const preview = typeof brandPayload === 'string'
+            ? brandPayload.slice(0, 500)
+            : JSON.stringify(brandPayload).slice(0, 500);
+          console.error(
+            `[apply] sh_1_1_show-a-brand returned non-object for adv=${change.v3_advertiser_id} brand=${change.v3_brand_id}. type=${typeof brandPayload}. preview:`,
+            preview,
+          );
+        }
         const mutatedXml = mutateBrandIndustry(brandPayload, change.new_industry_id);
         await fw.invoke('sh_1_1_update-a-brand', {
           advertiser_id: change.v3_advertiser_id,
