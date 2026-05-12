@@ -116,6 +116,39 @@ export default function AppNew() {
     cancelRef.current = true;
   }
 
+  // Resolve V3 ids for a single brand on-demand. Returns the resolved entry
+  // (or null on miss); also patches v3Map so the row updates.
+  async function resolveOne(globalBrandId) {
+    const row = rows.find((r) => r.global_brand_id === globalBrandId);
+    if (!row) throw new Error(`Brand ${globalBrandId} not in current dataset`);
+
+    const res = await fetch('/api/resolve-v3', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [{
+          global_brand_id: row.global_brand_id,
+          global_brand_nm: row.global_brand_nm,
+          global_advertiser_nm: row.global_advertiser_nm,
+        }],
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    const result = data.results?.[0];
+    if (result?.v3_advertiser_id != null && result?.v3_brand_id != null) {
+      setV3Map((prev) => ({
+        ...prev,
+        [result.global_brand_id]: {
+          v3_advertiser_id: result.v3_advertiser_id,
+          v3_brand_id: result.v3_brand_id,
+        },
+      }));
+      return result;
+    }
+    return null;
+  }
+
   const drawerRow = useMemo(
     () => rows.find((r) => r.global_brand_id === drawerBrandId) ?? null,
     [rows, drawerBrandId],
@@ -142,7 +175,7 @@ export default function AppNew() {
           onClose={() => setDrawerBrandId(null)} />
       )}
       <PendingChangesBar onReview={() => setReviewOpen(true)} onDiscardAll={clearPending} />
-      <ReviewApplyModal open={reviewOpen} onClose={() => setReviewOpen(false)} rows={rows} />
+      <ReviewApplyModal open={reviewOpen} onClose={() => setReviewOpen(false)} rows={rows} onResolveOne={resolveOne} />
     </div>
   );
 }

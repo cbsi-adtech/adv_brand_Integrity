@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { usePendingStore } from '../state/pendingStore.js';
 
-export function ReviewApplyModal({ open, onClose, rows = [] }) {
+export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne }) {
   const items = usePendingStore((s) => s.items);
   const setStatus = usePendingStore((s) => s.setStatus);
   const [applying, setApplying] = useState(false);
+  const [resolvingId, setResolvingId] = useState(null);  // global_brand_id currently resolving
+  const [resolveError, setResolveError] = useState(null);
 
   if (!open) return null;
 
@@ -90,18 +92,52 @@ export function ReviewApplyModal({ open, onClose, rows = [] }) {
           <section className="mb-4">
             <h3 className="font-medium mb-2">Advertiser Module industry edits ({amItems.length})</h3>
             <ul>
-              {amItems.map((i) => (
-                <li key={i.id} className="border rounded p-2 mb-1">
-                  <div className="font-medium">{i.brand.global_brand_nm} ({i.brand.global_brand_id})</div>
-                  <div className="text-sm text-slate-600">
-                    {i.payload.before?.path ?? '—'} → {i.payload.after.path}
-                  </div>
-                  <div className="text-xs">{statusLabel(i.status)}</div>
-                  {i.status === 'failed' && i.error?.message && (
-                    <div className="text-xs text-red-700 mt-1">{i.error.message}</div>
-                  )}
-                </li>
-              ))}
+              {amItems.map((i) => {
+                const v3 = v3For(i);
+                const missingV3 = v3.v3_advertiser_id == null || v3.v3_brand_id == null;
+                const isResolvingThis = resolvingId === i.brand.global_brand_id;
+                return (
+                  <li key={i.id} className="border rounded p-2 mb-1">
+                    <div className="font-medium">{i.brand.global_brand_nm} ({i.brand.global_brand_id})</div>
+                    <div className="text-sm text-slate-600">
+                      {i.payload.before?.path ?? '—'} → {i.payload.after.path}
+                    </div>
+                    <div className="text-xs">{statusLabel(i.status)}</div>
+                    {i.status === 'failed' && i.error?.message && (
+                      <div className="text-xs text-red-700 mt-1">{i.error.message}</div>
+                    )}
+                    {missingV3 && onResolveOne && (
+                      <div className="mt-1 flex items-center gap-2">
+                        <button
+                          disabled={isResolvingThis}
+                          onClick={async () => {
+                            setResolveError(null);
+                            setResolvingId(i.brand.global_brand_id);
+                            try {
+                              const result = await onResolveOne(i.brand.global_brand_id);
+                              if (!result) {
+                                setResolveError(`Couldn't find a V3 brand for ${i.brand.global_brand_nm}.`);
+                              } else {
+                                // Reset failed → staged so user can re-Apply
+                                if (i.status === 'failed') setStatus(i.id, 'staged');
+                              }
+                            } catch (e) {
+                              setResolveError(e.message);
+                            } finally {
+                              setResolvingId(null);
+                            }
+                          }}
+                          className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white disabled:opacity-50">
+                          {isResolvingThis ? 'Resolving V3…' : 'Resolve V3 for this brand'}
+                        </button>
+                        {resolveError && resolvingId == null && (
+                          <span className="text-xs text-red-700">{resolveError}</span>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
