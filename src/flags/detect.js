@@ -10,24 +10,23 @@ export function detectFlags(rows, taxonomy, config) {
 }
 
 function detectF1(row, taxonomy, config, flags) {
-  for (const side of ['pg', 'am']) {
-    const s = row[side];
-    if (!s || s.resolved_industry_id == null) continue;
-    const cutoff = side === 'pg' ? config.programmaticGenericDepthCutoff : config.amGenericDepthCutoff;
-    if (s.resolved_industry_depth > cutoff) continue;
-    if (!taxonomy.hasAssignableDescendants(s.resolved_industry_id)) continue;
+  // Programmatic-only: AM-side F1 was noisy in practice (every Insurance/Auto/etc.
+  // brand fires it because depth-0 roots have many assignable descendants). Removed.
+  const s = row.pg;
+  if (!s || s.resolved_industry_id == null) return;
+  if (s.resolved_industry_depth > config.programmaticGenericDepthCutoff) return;
+  if (!taxonomy.hasAssignableDescendants(s.resolved_industry_id)) return;
 
-    const flag = {
-      type: 'F1',
-      side,
-      severity: side === 'pg' ? 'high' : 'medium',
-      note: `${side === 'pg' ? 'Programmatic Module' : 'Advertiser Module'} mapped to '${s.resolved_industry_name}' (depth ${s.resolved_industry_depth}) — has more specific descendants.`,
-    };
-    if (side === 'pg' && s.impressions > config.highImpressionThreshold) {
-      flag.highImpact = true;
-    }
-    flags.push(flag);
+  const flag = {
+    type: 'F1',
+    side: 'pg',
+    severity: 'high',
+    note: `Programmatic Module mapped to '${s.resolved_industry_name}' (depth ${s.resolved_industry_depth}) — has more specific descendants.`,
+  };
+  if (s.impressions > config.highImpressionThreshold) {
+    flag.highImpact = true;
   }
+  flags.push(flag);
 }
 
 function detectF2(row, taxonomy, _config, flags) {

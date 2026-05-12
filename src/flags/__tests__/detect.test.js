@@ -37,7 +37,7 @@ function side(id, impressions = 0) {
   };
 }
 
-describe('F1 (Programmatic Module)', () => {
+describe('F1 (Programmatic Module — Programmatic-only)', () => {
   it('fires when pg depth ≤ cutoff and entry has descendants', () => {
     const rows = detectFlags([row({ pg: side(100) })], taxonomy, flagConfig);
     expect(rows[0].flags.some((f) => f.type === 'F1' && f.side === 'pg')).toBe(true);
@@ -62,6 +62,11 @@ describe('F1 (Programmatic Module)', () => {
       },
     });
     const rows = detectFlags([r], t2, flagConfig);
+    expect(rows[0].flags.some((f) => f.type === 'F1')).toBe(false);
+  });
+
+  it('does not fire on the AM side (AM-side F1 was removed)', () => {
+    const rows = detectFlags([row({ am: side(100), pg: null })], taxonomy, flagConfig);
     expect(rows[0].flags.some((f) => f.type === 'F1')).toBe(false);
   });
 

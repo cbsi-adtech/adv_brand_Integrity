@@ -43,6 +43,7 @@ export default function AppNew() {
     <div className="pb-16">
       <ListView
         rows={rows}
+        taxonomy={taxonomy}
         filters={filters}
         onFiltersChange={setFilters}
         onRowClick={(r) => setDrawerBrandId(r.global_brand_id)}
