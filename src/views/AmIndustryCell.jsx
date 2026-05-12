@@ -48,6 +48,9 @@ export function AmIndustryCell({ row, taxonomy }) {
           depth: after.depth,
           path: taxonomy.pathOf(after.id),
         },
+        // v3 ids captured at stage time; ReviewApplyModal re-reads from current
+        // row state at apply time if these are null (so a subsequent V3 resolve
+        // applies retroactively).
         v3_advertiser_id: row.v3_advertiser_id,
         v3_brand_id: row.v3_brand_id,
       },

@@ -11,7 +11,8 @@ import { FLAG_STYLES, flagKey } from './flagStyles.js';
 const fmt = new Intl.NumberFormat('en-US');
 const cur = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
-export function ListView({ rows, taxonomy, filters = {}, onFiltersChange, onRowClick }) {
+export function ListView({ rows, taxonomy, filters = {}, onFiltersChange, onRowClick,
+                          unresolvedV3Count = 0, resolving = null, onResolveV3 }) {
   const [sorting, setSorting] = useState([]);
   const filtered = useMemo(() => applyFilters(rows, filters), [rows, filters]);
   // Default priority sort is applied to data before TS Table sorting kicks in.
@@ -73,7 +74,8 @@ export function ListView({ rows, taxonomy, filters = {}, onFiltersChange, onRowC
   return (
     <div>
       <ListSummary rows={rows} filteredCount={filtered.length}
-        filters={filters} onFiltersChange={onFiltersChange} />
+        filters={filters} onFiltersChange={onFiltersChange}
+        unresolvedV3Count={unresolvedV3Count} resolving={resolving} onResolveV3={onResolveV3} />
       <FilterBar value={filters} onChange={onFiltersChange} />
       <table className="text-sm w-full">
         <thead className="bg-slate-100 text-left">

@@ -1,40 +1,78 @@
 import { useState } from 'react';
 import { usePendingStore } from '../state/pendingStore.js';
 
-export function ReviewApplyModal({ open, onClose }) {
+export function ReviewApplyModal({ open, onClose, rows = [] }) {
   const items = usePendingStore((s) => s.items);
   const setStatus = usePendingStore((s) => s.setStatus);
   const [applying, setApplying] = useState(false);
 
   if (!open) return null;
 
+  // Lookup for fresh v3 ids — payload was a snapshot at stage time and may be
+  // stale (e.g., V3 resolution happened after staging).
+  const rowById = new Map(rows.map((r) => [r.global_brand_id, r]));
+  const v3For = (item) => {
+    const r = rowById.get(item.brand.global_brand_id);
+    return {
+      v3_advertiser_id: item.payload.v3_advertiser_id ?? r?.v3_advertiser_id ?? null,
+      v3_brand_id:      item.payload.v3_brand_id      ?? r?.v3_brand_id      ?? null,
+    };
+  };
+
   const amItems = Object.values(items).filter((i) => i.type === 'am-industry');
 
   async function applyAll() {
     setApplying(true);
     try {
-      const changes = amItems.map((i) => ({
-        v3_advertiser_id: i.payload.v3_advertiser_id,
-        v3_brand_id: i.payload.v3_brand_id,
-        brand_name: i.brand.global_brand_nm,
-        current_industry_id: i.payload.before?.industry_id,
-        new_industry_id: i.payload.after.industry_id,
+      // Items missing v3 ids cannot apply — server requires integers.
+      const ready   = [];
+      const blocked = [];
+      for (const i of amItems) {
+        const v3 = v3For(i);
+        if (Number.isInteger(v3.v3_advertiser_id) && Number.isInteger(v3.v3_brand_id)) {
+          ready.push({ item: i, ...v3 });
+        } else {
+          blocked.push(i);
+        }
+      }
+      blocked.forEach((i) => setStatus(i.id, 'failed', { message: 'Missing V3 advertiser/brand id — run "Resolve V3 ids" first.' }));
+
+      if (ready.length === 0) return;
+
+      const changes = ready.map(({ item, v3_advertiser_id, v3_brand_id }) => ({
+        v3_advertiser_id,
+        v3_brand_id,
+        brand_name: item.brand.global_brand_nm,
+        current_industry_id: item.payload.before?.industry_id,
+        new_industry_id: item.payload.after.industry_id,
       }));
-      amItems.forEach((i) => setStatus(i.id, 'applying'));
-      const res = await fetch('/api/changes/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ changes }),
+      ready.forEach(({ item }) => setStatus(item.id, 'applying'));
+
+      let res, data;
+      try {
+        res = await fetch('/api/changes/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ changes }),
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (netErr) {
+        ready.forEach(({ item }) => setStatus(item.id, 'failed', { message: `Network error: ${netErr.message}` }));
+        return;
+      }
+
+      if (!res.ok || !Array.isArray(data.results)) {
+        const msg = data?.error || `HTTP ${res.status}: ${res.statusText || 'apply failed'}`;
+        ready.forEach(({ item }) => setStatus(item.id, 'failed', { message: msg }));
+        return;
+      }
+
+      data.results.forEach((r, idx) => {
+        const entry = ready[idx];
+        if (!entry) return;
+        if (r.status === 'ok') setStatus(entry.item.id, 'applied');
+        else setStatus(entry.item.id, 'failed', { message: r.error || 'Unknown server error' });
       });
-      const data = await res.json();
-      data.results?.forEach((r, idx) => {
-        const item = amItems[idx];
-        if (!item) return;
-        if (r.status === 'ok') setStatus(item.id, 'applied');
-        else setStatus(item.id, 'failed', { message: r.error });
-      });
-    } catch (e) {
-      amItems.forEach((i) => setStatus(i.id, 'failed', { message: e.message }));
     } finally {
       setApplying(false);
     }
@@ -59,6 +97,9 @@ export function ReviewApplyModal({ open, onClose }) {
                     {i.payload.before?.path ?? '—'} → {i.payload.after.path}
                   </div>
                   <div className="text-xs">{statusLabel(i.status)}</div>
+                  {i.status === 'failed' && i.error?.message && (
+                    <div className="text-xs text-red-700 mt-1">{i.error.message}</div>
+                  )}
                 </li>
               ))}
             </ul>

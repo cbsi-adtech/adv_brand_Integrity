@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { FLAG_STYLES, FLAG_FILTER_ORDER, flagKey } from './flagStyles.js';
 
-export function ListSummary({ rows, filteredCount, filters, onFiltersChange }) {
+export function ListSummary({ rows, filteredCount, filters, onFiltersChange,
+                             unresolvedV3Count = 0, resolving = null, onResolveV3 }) {
   const counts = useMemo(() => {
     const c = {};
     for (const r of rows) {
@@ -30,7 +31,7 @@ export function ListSummary({ rows, filteredCount, filters, onFiltersChange }) {
 
   return (
     <div className="bg-white border-b px-4 py-3 sticky top-0 z-10">
-      <div className="flex items-baseline gap-4 mb-2">
+      <div className="flex items-baseline gap-4 mb-2 flex-wrap">
         <h1 className="text-xl font-semibold">Brand Industry Issues</h1>
         <div className="text-sm text-slate-600">
           Showing <strong>{filteredCount.toLocaleString()}</strong> of {rows.length.toLocaleString()} brands
@@ -39,6 +40,18 @@ export function ListSummary({ rows, filteredCount, filters, onFiltersChange }) {
           <button onClick={clearAll}
                   className="text-xs text-blue-600 hover:underline">
             Clear flag filter
+          </button>
+        )}
+        {unresolvedV3Count > 0 && (
+          <button
+            onClick={onResolveV3}
+            disabled={!!resolving}
+            className="ml-auto text-xs px-3 py-1 rounded bg-emerald-600 text-white disabled:opacity-50"
+            title="Resolve V3 advertiser/brand IDs for any brand missing them. Required before applying Advertiser Module industry edits."
+          >
+            {resolving
+              ? `Resolving V3 ids… ${resolving.done.toLocaleString()} / ${resolving.total.toLocaleString()}`
+              : `Resolve V3 ids (${unresolvedV3Count.toLocaleString()} missing)`}
           </button>
         )}
       </div>
