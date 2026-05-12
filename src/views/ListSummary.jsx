@@ -16,13 +16,11 @@ export function ListSummary({ rows, filteredCount, filters, onFiltersChange }) {
   const activeTypes = new Set(filters.flagTypes ?? []);
 
   function toggle(key) {
-    // Note: filters.flagTypes operates on `type` codes; F1_high is treated as F1
-    // because the data row carries type:'F1' with highImpact:true. So clicking
-    // the F1_high chip filters by F1 (which includes both variants).
-    const filterValue = key === 'F1_high' ? 'F1' : key;
+    // F1_high is a distinct filter from F1: F1_high matches only impressions-weighted
+    // high-impact F1 rows; F1 matches plain (non-high-impact) F1 rows.
     const next = new Set(filters.flagTypes ?? []);
-    if (next.has(filterValue)) next.delete(filterValue);
-    else next.add(filterValue);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     onFiltersChange?.({ ...filters, flagTypes: [...next] });
   }
 
@@ -49,8 +47,7 @@ export function ListSummary({ rows, filteredCount, filters, onFiltersChange }) {
           const count = counts[key] ?? 0;
           if (count === 0) return null;
           const style = FLAG_STYLES[key];
-          const filterValue = key === 'F1_high' ? 'F1' : key;
-          const active = activeTypes.has(filterValue);
+          const active = activeTypes.has(key);
           return (
             <button key={key} onClick={() => toggle(key)}
               className={`text-xs px-2 py-1 rounded border ${style.color} ${active ? 'ring-2 ring-offset-1 ring-slate-800' : 'opacity-90 hover:opacity-100'}`}>

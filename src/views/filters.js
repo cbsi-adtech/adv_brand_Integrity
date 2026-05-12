@@ -9,7 +9,12 @@ export function applyFilters(rows, f) {
       if (!hay.includes(q)) return false;
     }
     if (f.flagTypes?.length > 0) {
-      const has = (r.flags ?? []).some((fl) => f.flagTypes.includes(fl.type));
+      const has = (r.flags ?? []).some((fl) => {
+        if (f.flagTypes.includes('F1_high') && fl.type === 'F1' && fl.highImpact) return true;
+        if (f.flagTypes.includes('F1')      && fl.type === 'F1' && !fl.highImpact) return true;
+        // Any other code is a plain type match
+        return f.flagTypes.some((k) => k !== 'F1' && k !== 'F1_high' && k === fl.type);
+      });
       if (!has) return false;
     }
     if (f.side === 'am') {
