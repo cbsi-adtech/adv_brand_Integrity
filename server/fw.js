@@ -54,8 +54,24 @@ export function createFwClient({ url, username, password, environment, fetchImpl
     };
     const rpc = await postRpc(fetchImpl, url, body);
     const result = unwrapToolResult(rpc);
-    sessionId = result?.session_id || result?.sessionId;
-    if (!sessionId) throw new Error('FW login returned no session_id');
+
+    // FW MCP returns a plain-string result like:
+    //   "Authenticated successfully. session_id=<uuid>, environment=production, expires_in=<n>s."
+    // Pull the session_id out of either shape (object or string).
+    if (typeof result === 'string') {
+      const m = result.match(/session_id\s*=\s*([0-9a-f-]+)/i);
+      if (m) sessionId = m[1];
+    } else {
+      sessionId = result?.session_id || result?.sessionId;
+    }
+
+    if (!sessionId) {
+      const safe = typeof result === 'string'
+        ? result
+        : JSON.stringify(result, (k, v) => /token|password|secret/i.test(k) ? '[redacted]' : v);
+      console.error('[fw.login] no session_id in result. Raw result:', safe);
+      throw new Error('FW login returned no session_id');
+    }
     sessionEstablishedAt = new Date().toISOString();
     return sessionId;
   }
