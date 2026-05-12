@@ -37,41 +37,52 @@ function side(id, impressions = 0) {
   };
 }
 
-describe('F1 (Programmatic Module — Programmatic-only)', () => {
-  it('fires when pg depth ≤ cutoff and entry has descendants', () => {
-    const rows = detectFlags([row({ pg: side(100) })], taxonomy, flagConfig);
+describe('F1 (Programmatic Module — watch-list)', () => {
+  // Real watch-listed id from HIGH_LEVEL_PARENTS_TO_WATCH: 202 = Clothing Stores
+  const watchedTaxonomy = createTaxonomy({
+    assignable: [
+      { id: 202, name: 'Clothing Stores', depth: 0, parentId: null, path: 'Clothing Stores' },
+      { id: 2020, name: "Men's", depth: 1, parentId: 202, path: "Clothing Stores › Men's" },
+      { id: 500, name: 'Safe Root', depth: 0, parentId: null, path: 'Safe Root' },
+    ],
+    groupIds: [],
+  });
+
+  function watchedSide(id, impressions = 0) {
+    const e = watchedTaxonomy.byId(id);
+    return {
+      applied_industry_ids_raw: String(id),
+      industry_names: null,
+      resolved_industry_id: id,
+      resolved_industry_name: e.name,
+      resolved_industry_depth: e.depth,
+      resolved_industry_path: watchedTaxonomy.pathOf(id),
+      impressions, revenue: 0,
+    };
+  }
+
+  it('fires when pg.resolved_industry_id is in HIGH_LEVEL_PARENTS_TO_WATCH', () => {
+    const rows = detectFlags([row({ pg: watchedSide(202) })], watchedTaxonomy, flagConfig);
     expect(rows[0].flags.some((f) => f.type === 'F1' && f.side === 'pg')).toBe(true);
   });
 
-  it('does not fire when pg depth is past cutoff', () => {
-    const rows = detectFlags([row({ pg: side(102) })], taxonomy, flagConfig);
+  it('does not fire when pg.resolved_industry_id is depth-0 but not watch-listed', () => {
+    const rows = detectFlags([row({ pg: watchedSide(500) })], watchedTaxonomy, flagConfig);
     expect(rows[0].flags.some((f) => f.type === 'F1' && f.side === 'pg')).toBe(false);
   });
 
-  it('does not fire on leaf depth-0 entries (no descendants)', () => {
-    const t2 = createTaxonomy({
-      assignable: [{ id: 50, name: 'Solo Root', depth: 0, parentId: null, path: 'Solo Root' }],
-      groupIds: [],
-    });
-    const r = row({
-      pg: {
-        applied_industry_ids_raw: '50', industry_names: null,
-        resolved_industry_id: 50, resolved_industry_name: 'Solo Root',
-        resolved_industry_depth: 0, resolved_industry_path: 'Solo Root',
-        impressions: 0, revenue: 0,
-      },
-    });
-    const rows = detectFlags([r], t2, flagConfig);
-    expect(rows[0].flags.some((f) => f.type === 'F1')).toBe(false);
+  it('does not fire when pg.resolved_industry_id is a non-watched descendant of a watched parent', () => {
+    const rows = detectFlags([row({ pg: watchedSide(2020) })], watchedTaxonomy, flagConfig);
+    expect(rows[0].flags.some((f) => f.type === 'F1' && f.side === 'pg')).toBe(false);
   });
 
   it('does not fire on the AM side (AM-side F1 was removed)', () => {
-    const rows = detectFlags([row({ am: side(100), pg: null })], taxonomy, flagConfig);
+    const rows = detectFlags([row({ am: watchedSide(202), pg: null })], watchedTaxonomy, flagConfig);
     expect(rows[0].flags.some((f) => f.type === 'F1')).toBe(false);
   });
 
   it('adds F5 high-impact sub-marker when pg impressions exceed threshold', () => {
-    const rows = detectFlags([row({ pg: side(100, 200_000) })], taxonomy, flagConfig);
+    const rows = detectFlags([row({ pg: watchedSide(202, 200_000) })], watchedTaxonomy, flagConfig);
     expect(rows[0].flags.find((f) => f.type === 'F1' && f.side === 'pg')?.highImpact).toBe(true);
   });
 });

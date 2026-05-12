@@ -1,3 +1,5 @@
+import { HIGH_LEVEL_PARENTS_TO_WATCH } from './config.js';
+
 export function detectFlags(rows, taxonomy, config) {
   return rows.map((row) => {
     const flags = [];
@@ -9,19 +11,19 @@ export function detectFlags(rows, taxonomy, config) {
   });
 }
 
-function detectF1(row, taxonomy, config, flags) {
-  // Programmatic-only: AM-side F1 was noisy in practice (every Insurance/Auto/etc.
-  // brand fires it because depth-0 roots have many assignable descendants). Removed.
+function detectF1(row, _taxonomy, config, flags) {
+  // F1 fires when Programmatic Module's resolved industry is one of the
+  // hand-curated "too-generic parents" in HIGH_LEVEL_PARENTS_TO_WATCH.
+  // The user maintains this list; depth-based detection produced too much noise.
   const s = row.pg;
   if (!s || s.resolved_industry_id == null) return;
-  if (s.resolved_industry_depth > config.programmaticGenericDepthCutoff) return;
-  if (!taxonomy.hasAssignableDescendants(s.resolved_industry_id)) return;
+  if (!HIGH_LEVEL_PARENTS_TO_WATCH.has(s.resolved_industry_id)) return;
 
   const flag = {
     type: 'F1',
     side: 'pg',
     severity: 'high',
-    note: `Programmatic Module mapped to '${s.resolved_industry_name}' (depth ${s.resolved_industry_depth}) — has more specific descendants.`,
+    note: `Programmatic Module mapped to '${s.resolved_industry_name}' — flagged as too-generic parent. Ask FreeWheel to drill down or override Advertiser Module.`,
   };
   if (s.impressions > config.highImpressionThreshold) {
     flag.highImpact = true;
