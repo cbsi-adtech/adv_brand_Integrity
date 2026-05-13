@@ -40,5 +40,9 @@ coverage/
 
 # BFF
 .env
+.env.txt
 server/audit.log
 server/v3-mapping-cache.json
+
+# Claude Code local state
+.claude/
