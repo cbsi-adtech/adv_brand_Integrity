@@ -42,4 +42,12 @@ describe('applyFilters', () => {
   it('minPgImpressions filter', () => {
     expect(applyFilters(rows, { minPgImpressions: 100 })).toEqual([rows[0]]);
   });
+
+  it('pgIndustryName filter — exact match against Programmatic resolved industry name', () => {
+    const withNames = [
+      { ...rows[0], pg: { ...rows[0].pg, resolved_industry_name: 'Food - Packaged' } },
+      { ...rows[1], pg: { ...rows[1].pg, resolved_industry_name: 'Clothing Stores' } },
+    ];
+    expect(applyFilters(withNames, { pgIndustryName: 'Food - Packaged' })).toEqual([withNames[0]]);
+  });
 });

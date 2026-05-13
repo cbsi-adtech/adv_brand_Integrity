@@ -77,7 +77,7 @@ export function ListView({ rows, taxonomy, filters = {}, onFiltersChange, onRowC
         filters={filters} onFiltersChange={onFiltersChange}
         unresolvedV3Count={unresolvedV3Count} resolving={resolving}
         onResolveV3={onResolveV3} onCancelResolve={onCancelResolve} />
-      <FilterBar value={filters} onChange={onFiltersChange} />
+      <FilterBar value={filters} onChange={onFiltersChange} rows={rows} />
       <table className="text-sm w-full">
         <thead className="bg-slate-100 text-left">
           {table.getHeaderGroups().map((hg) => (
@@ -136,8 +136,22 @@ function FlagBadges({ flags }) {
   );
 }
 
-function FilterBar({ value, onChange }) {
+function FilterBar({ value, onChange, rows = [] }) {
   const set = (patch) => onChange?.({ ...value, ...patch });
+
+  // Unique Programmatic Module industries in the current dataset, with brand counts.
+  const pgIndustries = useMemo(() => {
+    const counts = new Map();
+    for (const r of rows) {
+      const nm = r.pg?.resolved_industry_name;
+      if (!nm) continue;
+      counts.set(nm, (counts.get(nm) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))   // alphabetical
+      .map(([name, count]) => ({ name, count }));
+  }, [rows]);
+
   return (
     <div className="p-2 flex gap-2 flex-wrap items-center text-sm border-b">
       <input type="text" placeholder="Search brand or advertiser…"
@@ -148,6 +162,16 @@ function FilterBar({ value, onChange }) {
         <option value="both">Both modules</option>
         <option value="am">Advertiser Module only</option>
         <option value="pg-only">Programmatic Module only</option>
+      </select>
+      <select
+        value={value.pgIndustryName ?? ''}
+        onChange={(e) => set({ pgIndustryName: e.target.value || null })}
+        className="border rounded px-2 py-1 max-w-xs"
+        title="Filter to brands whose Programmatic Module resolves to this industry">
+        <option value="">Programmatic industry: any</option>
+        {pgIndustries.map(({ name, count }) => (
+          <option key={name} value={name}>{name} ({count.toLocaleString()})</option>
+        ))}
       </select>
       <input type="number" placeholder="Min Programmatic Module impressions"
         value={value.minPgImpressions ?? ''}

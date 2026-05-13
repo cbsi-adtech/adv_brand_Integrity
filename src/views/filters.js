@@ -31,6 +31,9 @@ export function applyFilters(rows, f) {
     if (f.minPgImpressions != null) {
       if ((r.pg?.impressions ?? 0) < f.minPgImpressions) return false;
     }
+    if (f.pgIndustryName) {
+      if (r.pg?.resolved_industry_name !== f.pgIndustryName) return false;
+    }
     return true;
   });
 }
