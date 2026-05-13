@@ -4,6 +4,7 @@ import { mutateBrandIndustry } from './mutate-brand-xml.js';
 import { appendAudit, AUDIT_PATH } from './audit.js';
 import { readRecent } from './audit-read.js';
 import { createResolver } from './v3-resolver.js';
+import { suggestIndustry } from './suggest-industry.js';
 
 function isValidChange(c) {
   return c
@@ -141,6 +142,19 @@ export function createRouter({ fw, environment }) {
 
   router.post('/creatives/apply', (_req, res) => {
     res.status(501).json({ error: 'Programmatic Module creative apply path not implemented yet' });
+  });
+
+  router.post('/suggest-industry', async (req, res) => {
+    const { brand_name, advertiser_name, parent_industry, candidates } = req.body || {};
+    if (!brand_name || !parent_industry || !Array.isArray(candidates) || candidates.length === 0) {
+      return res.status(400).json({ error: 'brand_name, parent_industry, candidates[] required' });
+    }
+    try {
+      const result = await suggestIndustry({ brand_name, advertiser_name, parent_industry, candidates });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
   });
 
   return router;

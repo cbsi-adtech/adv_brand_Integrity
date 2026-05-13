@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { SideBySide } from './SideBySide.jsx';
 import { EditAmPanel } from './EditAmPanel.jsx';
 import { ProgrammaticZendeskPanel } from './ProgrammaticZendeskPanel.jsx';
+import { SuggestionsPanel } from './SuggestionsPanel.jsx';
 
 export function BrandDrawer({ row, onClose, taxonomy }) {
   useEffect(() => {
@@ -39,6 +40,7 @@ export function BrandDrawer({ row, onClose, taxonomy }) {
 
         <div className="p-4">
           <SideBySide row={row} />
+          {taxonomy && <SuggestionsPanel row={row} taxonomy={taxonomy} />}
           {taxonomy && <EditAmPanel row={row} taxonomy={taxonomy} />}
           <ProgrammaticZendeskPanel row={row} />
         </div>

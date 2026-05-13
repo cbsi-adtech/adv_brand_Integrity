@@ -77,6 +77,17 @@ export function createTaxonomy({ assignable, groupIds }) {
     hasAssignableDescendants(id) {
       return (childrenByParent.get(id)?.length ?? 0) > 0;
     },
+    descendantsOf(id) {
+      const out = [];
+      const stack = [...(childrenByParent.get(id) ?? [])];
+      while (stack.length) {
+        const cur = stack.pop();
+        out.push(cur);
+        const kids = childrenByParent.get(cur.id) ?? [];
+        for (const k of kids) stack.push(k);
+      }
+      return out;
+    },
     isAncestor(ancestorId, descendantId) {
       if (ancestorId === descendantId) return false;
       let cur = byIdMap.get(descendantId);
