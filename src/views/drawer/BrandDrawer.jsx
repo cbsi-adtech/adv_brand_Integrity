@@ -42,7 +42,7 @@ export function BrandDrawer({ row, onClose, taxonomy }) {
           <SideBySide row={row} />
           {taxonomy && <SuggestionsPanel row={row} taxonomy={taxonomy} />}
           {taxonomy && <EditAmPanel row={row} taxonomy={taxonomy} />}
-          <ProgrammaticZendeskPanel row={row} />
+          {taxonomy && <ProgrammaticZendeskPanel row={row} taxonomy={taxonomy} />}
         </div>
       </aside>
     </>

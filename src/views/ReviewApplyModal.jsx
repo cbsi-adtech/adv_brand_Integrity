@@ -25,6 +25,18 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
   };
 
   const amItems = Object.values(items).filter((i) => i.type === 'am-industry');
+  const zendeskItems = Object.values(items).filter((i) => i.type === 'zendesk-draft');
+
+  const zendeskBody = zendeskItems.length === 0
+    ? ''
+    : [
+        'Please update the following global brand industries',
+        ...zendeskItems.map(
+          (i) => `${i.brand.global_brand_nm} should be this industry ${i.payload.to_industry} from this existing one ${i.payload.from_industry}`,
+        ),
+      ].join('\n');
+
+  const removeItem = usePendingStore.getState().remove;
 
   async function applyAll() {
     setApplying(true);
@@ -194,6 +206,33 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
                 );
               })}
             </ul>
+          </section>
+        )}
+
+        {zendeskItems.length > 0 && (
+          <section className="mb-4">
+            <h3 className="font-medium mb-2">
+              Zendesk draft email ({zendeskItems.length} {zendeskItems.length === 1 ? 'brand' : 'brands'})
+            </h3>
+            <textarea readOnly
+              className="w-full h-48 border rounded p-2 font-mono text-xs"
+              value={zendeskBody} />
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => navigator.clipboard.writeText(zendeskBody)}
+                className="px-3 py-1 bg-emerald-600 text-white rounded text-sm">
+                Copy to clipboard
+              </button>
+              <button
+                onClick={() => {
+                  if (window.confirm(`Clear all ${zendeskItems.length} Zendesk draft entries?`)) {
+                    zendeskItems.forEach((i) => removeItem(i.id));
+                  }
+                }}
+                className="px-3 py-1 bg-slate-200 rounded text-sm">
+                Clear all drafts
+              </button>
+            </div>
           </section>
         )}
 
