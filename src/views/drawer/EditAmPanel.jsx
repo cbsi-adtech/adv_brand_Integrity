@@ -45,26 +45,26 @@ export function EditAmPanel({ row, taxonomy }) {
   }
 
   return (
-    <section className="mt-4 border rounded p-3">
+    <section className="mt-4 border border-white/15 rounded p-3 bg-brand-card">
       {!open ? (
-        <button onClick={() => setOpen(true)} className="px-3 py-1 bg-slate-200 rounded">
+        <button onClick={() => setOpen(true)} className="px-3 py-1 border border-white/30 text-white hover:bg-white/10 rounded">
           Edit Advertiser Module industry
         </button>
       ) : (
         <>
           <h3 className="font-medium mb-2">Edit Advertiser Module industry</h3>
-          <div className="text-sm mb-2">Current: {row.am?.resolved_industry_path ?? '—'}</div>
+          <div className="text-sm mb-2 text-brand-grey">Current: {row.am?.resolved_industry_path ?? '—'}</div>
           <IndustryPicker taxonomy={taxonomy} onPick={setPickedId} />
           {pickedId != null && (
-            <div className="text-sm mt-2">New: {taxonomy.pathOf(pickedId)}</div>
+            <div className="text-sm mt-2">New: <span className="text-brand-sky">{taxonomy.pathOf(pickedId)}</span></div>
           )}
-          {error && <div className="text-red-700 text-sm mt-1">{error}</div>}
+          {error && <div className="text-brand-horizon text-sm mt-1">{error}</div>}
           <div className="mt-2 flex gap-2">
-            <button onClick={handleStage} className="px-3 py-1 bg-emerald-600 text-white rounded">
+            <button onClick={handleStage} className="px-3 py-1 bg-brand-peak hover:bg-brand-peakhover text-white font-semibold rounded">
               Stage change
             </button>
             <button onClick={() => { setOpen(false); setPickedId(null); }}
-                    className="px-3 py-1 bg-slate-200 rounded">
+                    className="px-3 py-1 border border-white/30 text-white hover:bg-white/10 rounded">
               Cancel
             </button>
           </div>

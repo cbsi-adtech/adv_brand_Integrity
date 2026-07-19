@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { loadTaxonomy } from './data/taxonomy.js';
 import { pivotToCanonical } from './data/canonical.js';
+import { countResolved, patchV3 } from './data/v3-resolve.js';
 import { detectFlags } from './flags/detect.js';
 import { flagConfig } from './flags/config.js';
 import { usePendingStore } from './state/pendingStore.js';
@@ -30,21 +31,16 @@ export default function AppNew() {
     rehydrate();
   }, [rehydrate]);
 
-  const rows = useMemo(() => {
+  // The expensive pipeline (pivot + flag detection) runs only when the
+  // dataset or taxonomy changes. V3 resolution progress (v3Map updates every
+  // batch) only pays for the cheap patch pass below — previously it re-ran
+  // the whole pipeline on every 5-brand batch.
+  const baseRows = useMemo(() => {
     if (!records || !taxonomy) return [];
-    const pivoted = pivotToCanonical(records, taxonomy);
-    // Patch in any V3 ids we've resolved.
-    const patched = pivoted.map((row) => {
-      const m = v3Map[row.global_brand_id];
-      if (!m) return row;
-      return {
-        ...row,
-        v3_advertiser_id: row.v3_advertiser_id ?? m.v3_advertiser_id,
-        v3_brand_id:      row.v3_brand_id      ?? m.v3_brand_id,
-      };
-    });
-    return detectFlags(patched, taxonomy, flagConfig);
-  }, [records, taxonomy, v3Map]);
+    return detectFlags(pivotToCanonical(records, taxonomy), taxonomy, flagConfig);
+  }, [records, taxonomy]);
+
+  const rows = useMemo(() => patchV3(baseRows, v3Map), [baseRows, v3Map]);
 
   const unresolvedCount = useMemo(
     () => rows.filter((r) => r.v3_advertiser_id == null || r.v3_brand_id == null).length,
@@ -88,14 +84,17 @@ export default function AppNew() {
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
+        // Count hits/misses OUTSIDE the state updater — updaters must stay
+        // pure (StrictMode re-runs them, which double-counted before).
+        const counts = countResolved(data.results);
+        hits += counts.hits;
+        misses += counts.misses;
+
         setV3Map((prev) => {
           const next = { ...prev };
           for (const r of data.results ?? []) {
             if (r.v3_advertiser_id != null && r.v3_brand_id != null) {
               next[r.global_brand_id] = { v3_advertiser_id: r.v3_advertiser_id, v3_brand_id: r.v3_brand_id };
-              hits++;
-            } else {
-              misses++;
             }
           }
           return next;

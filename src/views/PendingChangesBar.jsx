@@ -17,15 +17,15 @@ export function PendingChangesBar({ onReview, onDiscardAll }) {
   }, {});
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-slate-900 text-white px-4 py-2 flex justify-between items-center text-sm">
+    <div className="fixed bottom-0 left-0 right-0 bg-brand-card border-t border-white/15 text-white px-4 py-2 flex justify-between items-center text-sm">
       <div>
         <strong>{list.length} pending changes</strong>
-        {' · '}
-        {Object.entries(counts).map(([t, n]) => `${n} ${TYPE_LABEL[t] ?? t}`).join(' · ')}
+        <span className="text-brand-grey">{' · '}
+        {Object.entries(counts).map(([t, n]) => `${n} ${TYPE_LABEL[t] ?? t}`).join(' · ')}</span>
       </div>
       <div className="flex gap-2">
-        <button className="px-3 py-1 bg-emerald-600 rounded" onClick={onReview}>Review & Apply</button>
-        <button className="px-3 py-1 bg-slate-700 rounded" onClick={() => {
+        <button className="px-3 py-1 bg-brand-peak hover:bg-brand-peakhover font-semibold rounded" onClick={onReview}>Review & Apply</button>
+        <button className="px-3 py-1 border border-white/30 hover:bg-white/10 rounded" onClick={() => {
           if (window.confirm('Discard all pending changes?')) onDiscardAll?.();
         }}>Discard all</button>
       </div>

@@ -106,8 +106,8 @@ export function SuggestionsPanel({ row, taxonomy }) {
   const meetsThreshold = displaySuggestion?.confidence >= CONFIDENCE_THRESHOLD;
 
   return (
-    <section className="mt-4 border rounded p-3 bg-amber-50">
-      <h3 className="font-medium mb-2">Suggested industry (F1 flagged)</h3>
+    <section className="mt-4 border border-brand-sunrise/40 rounded p-3 bg-brand-sunrise/5">
+      <h3 className="font-medium mb-2 text-brand-sunrise">Suggested industry (F1 flagged)</h3>
 
       {amHint ? (
         <SuggestionCard
@@ -118,23 +118,23 @@ export function SuggestionsPanel({ row, taxonomy }) {
         />
       ) : (
         <>
-          <p className="text-sm text-slate-600 mb-2">
+          <p className="text-sm text-brand-grey mb-2">
             Advertiser Module doesn't sit under the same parent. Click below to research the brand on the open web and pick a more specific industry from the {candidates.length} candidates under <strong>{row.pg?.resolved_industry_name}</strong>.
           </p>
 
           {!apiResult && !loading && (
             <button onClick={fetchSuggestion}
-              className="px-3 py-1 bg-emerald-600 text-white rounded text-sm">
+              className="px-3 py-1 bg-brand-peak hover:bg-brand-peakhover text-white rounded text-sm">
               Research brand & suggest industry
             </button>
           )}
 
           {loading && (
-            <div className="text-sm text-slate-600">Researching {row.global_brand_nm}…</div>
+            <div className="text-sm text-brand-grey">Researching {row.global_brand_nm}…</div>
           )}
 
           {error && (
-            <div className="text-sm text-red-700 mt-1">{error}</div>
+            <div className="text-sm text-brand-horizon mt-1">{error}</div>
           )}
 
           {apiResult && (
@@ -155,33 +155,33 @@ export function SuggestionsPanel({ row, taxonomy }) {
 function SuggestionCard({ suggestion, taxonomy, meetsThreshold, onStage, onRetry }) {
   const entry = taxonomy.byId(suggestion.suggestion_id);
   if (!entry) {
-    return <div className="text-sm text-red-700">Suggested industry id {suggestion.suggestion_id} not in taxonomy.</div>;
+    return <div className="text-sm text-brand-horizon">Suggested industry id {suggestion.suggestion_id} not in taxonomy.</div>;
   }
   const path = taxonomy.pathOf(entry.id);
   const confidencePct = Math.round((suggestion.confidence ?? 0) * 100);
   const isAmHint = suggestion.source === 'am-hint';
 
   return (
-    <div className="border rounded p-2 bg-white">
-      <div className="font-medium text-sm">{path}</div>
-      <div className="text-xs text-slate-600 mt-1">
-        Confidence: <strong className={meetsThreshold ? 'text-emerald-700' : 'text-amber-700'}>{confidencePct}%</strong>
+    <div className="border border-white/15 rounded p-2 bg-brand-card">
+      <div className="font-medium text-sm text-white">{path}</div>
+      <div className="text-xs text-brand-grey mt-1">
+        Confidence: <strong className={meetsThreshold ? 'text-brand-success' : 'text-brand-sunrise'}>{confidencePct}%</strong>
         {' · '}
         Source: {isAmHint ? 'Advertiser Module' : 'web research'}
       </div>
-      <div className="text-xs text-slate-700 mt-1 italic">{suggestion.reason}</div>
+      <div className="text-xs text-brand-grey/80 mt-1 italic">{suggestion.reason}</div>
 
       {meetsThreshold ? (
         <button onClick={onStage}
-          className="mt-2 px-3 py-1 bg-emerald-600 text-white rounded text-sm">
+          className="mt-2 px-3 py-1 bg-brand-peak hover:bg-brand-peakhover text-white rounded text-sm">
           Use as Advertiser Module industry
         </button>
       ) : (
-        <div className="mt-2 text-xs text-amber-800">
+        <div className="mt-2 text-xs text-brand-sunrise">
           Confidence below {Math.round(CONFIDENCE_THRESHOLD * 100)}% threshold — not suggested for automatic use.
           {onRetry && (
             <button onClick={onRetry}
-              className="ml-2 px-2 py-0.5 bg-slate-200 rounded">
+              className="ml-2 px-2 py-0.5 border border-white/30 text-white hover:bg-white/10 rounded">
               Retry
             </button>
           )}

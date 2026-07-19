@@ -10,13 +10,13 @@ export function IndustryPicker({ taxonomy, onPick }) {
   }, [entries, q]);
 
   return (
-    <div className="border rounded p-2 max-h-80 overflow-auto">
+    <div className="border border-white/15 rounded p-2 max-h-80 overflow-auto bg-brand-card">
       <input type="text" placeholder="Search industry…"
         value={q} onChange={(e) => setQ(e.target.value)}
-        className="w-full border rounded px-2 py-1 mb-2" />
-      <ul className="text-sm">
+        className="w-full bg-brand-navy border border-white/20 rounded px-2 py-1 mb-2 text-white placeholder:text-brand-grey/50 focus:border-brand-peak focus:outline-none" />
+      <ul className="text-sm text-brand-grey">
         {filtered.map((e) => (
-          <li key={e.id} className="px-2 py-1 hover:bg-slate-100 cursor-pointer"
+          <li key={e.id} className="px-2 py-1 hover:bg-brand-peak/20 hover:text-white cursor-pointer"
               onClick={() => onPick(e.id)}>
             {e.path}
           </li>

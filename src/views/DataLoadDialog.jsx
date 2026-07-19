@@ -25,9 +25,9 @@ export function DataLoadDialog({ onLoaded }) {
   }
 
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <h2 className="text-lg font-semibold mb-2">Load data</h2>
-      <p className="text-sm text-slate-600 mb-4">
+    <div className="p-6 max-w-4xl mx-auto">
+      <h2 className="font-display text-2xl font-bold tracking-wide uppercase mb-2">Load data</h2>
+      <p className="text-sm text-brand-grey mb-4">
         Paste the BigQuery export (Advertiser Module + secondary Programmatic Module from <code>ind_*</code> columns)
         and/or the FreeWheel Console Programmatic Module CSV. Both can be loaded together — the FreeWheel report
         wins for the Programmatic Module slot.
@@ -40,15 +40,18 @@ export function DataLoadDialog({ onLoaded }) {
             type="file"
             accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={async (e) => {
-              const file = e.target.files?.[0];
+              const input = e.target;
+              const file = input.files?.[0];
               if (!file) return;
               setBq(await file.text());
+              // Reset so re-selecting the same file fires onChange again.
+              input.value = '';
             }}
             className="text-xs"
           />
-          <span className="text-xs text-slate-500">— or paste below</span>
+          <span className="text-xs text-brand-grey/70">— or paste below</span>
         </div>
-        <textarea id={bqId} className="w-full h-40 border rounded p-2 font-mono text-xs"
+        <textarea id={bqId} className="w-full h-40 bg-brand-surface border border-white/20 rounded p-2 font-mono text-xs text-brand-grey focus:border-brand-peak focus:outline-none"
           value={bq} onChange={(e) => setBq(e.target.value)} />
       </div>
 
@@ -61,21 +64,24 @@ export function DataLoadDialog({ onLoaded }) {
             type="file"
             accept=".csv,text/csv"
             onChange={async (e) => {
-              const file = e.target.files?.[0];
+              const input = e.target;
+              const file = input.files?.[0];
               if (!file) return;
               setFw(await file.text());
+              // Reset so re-selecting the same file fires onChange again.
+              input.value = '';
             }}
             className="text-xs"
           />
-          <span className="text-xs text-slate-500">— or paste below</span>
+          <span className="text-xs text-brand-grey/70">— or paste below</span>
         </div>
-        <textarea id={fwId} className="w-full h-40 border rounded p-2 font-mono text-xs"
+        <textarea id={fwId} className="w-full h-40 bg-brand-surface border border-white/20 rounded p-2 font-mono text-xs text-brand-grey focus:border-brand-peak focus:outline-none"
           value={fw} onChange={(e) => setFw(e.target.value)} />
       </div>
 
-      {error && <div className="text-red-700 text-sm mb-2">{error}</div>}
+      {error && <div className="text-brand-horizon text-sm mb-2">{error}</div>}
 
-      <button className="px-4 py-2 bg-emerald-600 text-white rounded" onClick={handleParse}>
+      <button className="px-5 py-2 bg-brand-peak hover:bg-brand-peakhover text-white font-semibold rounded" onClick={handleParse}>
         Parse
       </button>
     </div>

@@ -37,16 +37,16 @@ export function ProgrammaticZendeskPanel({ row, taxonomy }) {
 
   if (existingDraft) {
     return (
-      <section className="mt-4 border rounded p-3 bg-emerald-50">
+      <section className="mt-4 border border-brand-success/40 rounded p-3 bg-brand-success/5">
         <div className="text-sm">
-          ✓ Added to Zendesk draft: <strong>{existingDraft.payload.to_industry}</strong> (from {existingDraft.payload.from_industry})
+          <span className="text-brand-success">✓</span> Added to Zendesk draft: <strong>{existingDraft.payload.to_industry}</strong> (from {existingDraft.payload.from_industry})
         </div>
-        <div className="text-xs text-slate-600 mt-1">
+        <div className="text-xs text-brand-grey mt-1">
           Open <strong>Review &amp; Apply</strong> to see the combined email body for all staged drafts.
         </div>
         <button
           onClick={() => remove(existingDraft.id)}
-          className="mt-2 px-2 py-0.5 bg-slate-200 rounded text-xs">
+          className="mt-2 px-2 py-0.5 border border-white/30 text-white hover:bg-white/10 rounded text-xs">
           Remove from draft
         </button>
       </section>
@@ -56,30 +56,30 @@ export function ProgrammaticZendeskPanel({ row, taxonomy }) {
   if (!taxonomy) return null;
 
   return (
-    <section className="mt-4 border rounded p-3">
+    <section className="mt-4 border border-white/15 rounded p-3 bg-brand-card">
       {!open ? (
-        <button onClick={() => setOpen(true)} className="px-3 py-1 bg-slate-200 rounded text-sm">
+        <button onClick={() => setOpen(true)} className="px-3 py-1 border border-white/30 text-white hover:bg-white/10 rounded text-sm">
           Add to Zendesk draft (ask FreeWheel to remap Programmatic Module)
         </button>
       ) : (
         <>
           <h3 className="font-medium mb-1">Pick suggested industry</h3>
-          <div className="text-sm mb-2">
-            Current Programmatic Module: <strong>{row.pg?.resolved_industry_name ?? '—'}</strong>
+          <div className="text-sm mb-2 text-brand-grey">
+            Current Programmatic Module: <strong className="text-white">{row.pg?.resolved_industry_name ?? '—'}</strong>
           </div>
           <IndustryPicker taxonomy={taxonomy} onPick={setPicked} />
           {picked != null && (
             <div className="text-sm mt-2">
-              Will request: <strong>{taxonomy.pathOf(picked)}</strong>
+              Will request: <strong className="text-brand-sky">{taxonomy.pathOf(picked)}</strong>
             </div>
           )}
           <div className="mt-2 flex gap-2">
             <button onClick={handleAdd} disabled={picked == null}
-              className="px-3 py-1 bg-emerald-600 text-white rounded disabled:opacity-50">
+              className="px-3 py-1 bg-brand-peak hover:bg-brand-peakhover text-white rounded disabled:opacity-50">
               Add to draft
             </button>
             <button onClick={() => { setOpen(false); setPicked(null); }}
-              className="px-3 py-1 bg-slate-200 rounded">
+              className="px-3 py-1 border border-white/30 text-white hover:bg-white/10 rounded">
               Cancel
             </button>
           </div>

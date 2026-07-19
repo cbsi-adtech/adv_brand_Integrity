@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ListView } from '../ListView.jsx';
 
 const rows = [
@@ -36,5 +36,63 @@ describe('ListView', () => {
     expect(screen.getByText('Life360 Inc')).toBeInTheDocument();
     expect(screen.getByText('Tech')).toBeInTheDocument();
     expect(screen.getByText('Software')).toBeInTheDocument();
+  });
+
+  it('shows the FW-canonical (gb) industry as a secondary line in the brand cell', () => {
+    const withGb = [{
+      ...rows[0],
+      gb: { resolved_industry_id: 200, resolved_industry_name: 'Auto Canonical',
+            resolved_industry_path: 'Auto Canonical' },
+    }];
+    render(<ListView rows={withGb} onRowClick={() => {}} />);
+    expect(screen.getByText(/FW canonical: Auto Canonical/)).toBeInTheDocument();
+  });
+
+  it('falls back to the raw gb industry id when the gb slot has no resolved name', () => {
+    const withGb = [{ ...rows[0], gb: { industry_id: 456 } }];
+    render(<ListView rows={withGb} onRowClick={() => {}} />);
+    expect(screen.getByText(/FW canonical: 456/)).toBeInTheDocument();
+  });
+
+  it('renders no FW canonical line when gb is null', () => {
+    render(<ListView rows={rows} onRowClick={() => {}} />);
+    expect(screen.queryByText(/FW canonical:/)).toBeNull();
+  });
+
+  it('virtualizes large row sets: only a viewport-sized slice is in the DOM', () => {
+    const many = Array.from({ length: 500 }, (_, i) => ({
+      ...rows[0],
+      global_brand_id: i + 1,
+      global_brand_nm: `Brand ${i + 1}`,
+      global_advertiser_nm: `Advertiser ${i + 1}`,
+    }));
+    const { container } = render(<ListView rows={many} onRowClick={() => {}} />);
+
+    const bodyRows = container.querySelectorAll('tbody tr[data-index]');
+    expect(bodyRows.length).toBeGreaterThan(0);
+    expect(bodyRows.length).toBeLessThan(120);   // ~viewport + overscan, not all 500
+
+    // Summary still reports the full dataset ("Showing 500 of 500").
+    expect(screen.getAllByText('500').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('module select shows "All" (no side filter) by default, distinct from "Both modules present"', () => {
+    render(<ListView rows={rows} filters={{}} onFiltersChange={() => {}} onRowClick={() => {}} />);
+    const allOption = screen.getByRole('option', { name: 'All' });
+    expect(screen.getByRole('option', { name: 'Both modules present' })).toBeInTheDocument();
+    expect(allOption.closest('select')).toHaveValue('');
+  });
+
+  it('returning the module select to "All" clears the side filter (round-trip)', () => {
+    const onChange = vi.fn();
+    render(<ListView rows={rows} filters={{ side: 'am' }} onFiltersChange={onChange} onRowClick={() => {}} />);
+    const select = screen.getByRole('option', { name: 'All' }).closest('select');
+    expect(select).toHaveValue('am');
+
+    fireEvent.change(select, { target: { value: '' } });
+
+    expect(onChange).toHaveBeenCalled();
+    const patch = onChange.mock.calls.at(-1)[0];
+    expect(patch.side).toBeUndefined();
   });
 });

@@ -66,19 +66,19 @@ export function AmIndustryCell({ row, taxonomy }) {
     <span className="relative inline-block" ref={ref} onClick={(e) => e.stopPropagation()}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`text-left px-2 py-0.5 rounded border text-sm hover:bg-slate-100 ${
+        className={`text-left px-2 py-0.5 rounded border text-sm hover:bg-white/10 ${
           pendingForRow
-            ? 'border-amber-400 bg-amber-50 text-amber-900'
-            : 'border-slate-300 bg-white text-slate-800'
+            ? 'border-brand-sunrise/60 bg-brand-sunrise/10 text-brand-sunrise'
+            : 'border-white/20 bg-brand-surface text-white'
         }`}
         title={pendingForRow ? `Pending: → ${pendingForRow.payload.after.path}` : 'Click to change Advertiser Module industry'}
       >
         {label} {pendingForRow ? '✎' : ''}
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 left-0 bg-white shadow-lg w-[24rem]">
+        <div className="absolute z-30 mt-1 left-0 bg-brand-card border border-white/15 rounded shadow-lg w-[24rem]">
           <IndustryPicker taxonomy={taxonomy} onPick={handlePick} />
-          {error && <div className="text-red-700 text-xs px-2 py-1">{error}</div>}
+          {error && <div className="text-brand-horizon text-xs px-2 py-1">{error}</div>}
         </div>
       )}
     </span>

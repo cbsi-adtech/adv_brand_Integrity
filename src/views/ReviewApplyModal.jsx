@@ -10,6 +10,7 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
   const [manualForBrand, setManualForBrand] = useState(null);  // global_brand_id currently editing manual entry
   const [manualAdvId, setManualAdvId] = useState('');
   const [manualBrandId, setManualBrandId] = useState('');
+  const [copyStatus, setCopyStatus] = useState(null);          // null | 'copied' | 'failed'
 
   if (!open) return null;
 
@@ -41,10 +42,15 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
   async function applyAll() {
     setApplying(true);
     try {
+      // Only staged/failed items are eligible: 'applied' items were already
+      // written to FreeWheel (re-sending would duplicate the write) and
+      // 'applying' items have a request in flight.
+      const eligible = amItems.filter((i) => i.status !== 'applied' && i.status !== 'applying');
+
       // Items missing v3 ids cannot apply — server requires integers.
       const ready   = [];
       const blocked = [];
-      for (const i of amItems) {
+      for (const i of eligible) {
         const v3 = v3For(i);
         if (Number.isInteger(v3.v3_advertiser_id) && Number.isInteger(v3.v3_brand_id)) {
           ready.push({ item: i, ...v3 });
@@ -96,11 +102,11 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-4 max-w-3xl w-full max-h-[80vh] overflow-auto">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-brand-card border border-white/15 text-white rounded-lg p-4 max-w-3xl w-full max-h-[80vh] overflow-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Review & Apply</h2>
-          <button onClick={onClose} aria-label="close">✕</button>
+          <h2 className="font-display text-xl font-bold tracking-wide uppercase">Review & Apply</h2>
+          <button onClick={onClose} aria-label="close" className="text-brand-grey hover:text-white">✕</button>
         </div>
 
         {amItems.length > 0 && (
@@ -112,14 +118,22 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
                 const missingV3 = v3.v3_advertiser_id == null || v3.v3_brand_id == null;
                 const isResolvingThis = resolvingId === i.brand.global_brand_id;
                 return (
-                  <li key={i.id} className="border rounded p-2 mb-1">
+                  <li key={i.id} className="border border-white/15 rounded p-2 mb-1 bg-brand-surface">
                     <div className="font-medium">{i.brand.global_brand_nm} ({i.brand.global_brand_id})</div>
-                    <div className="text-sm text-slate-600">
-                      {i.payload.before?.path ?? '—'} → {i.payload.after.path}
+                    <div className="text-sm text-brand-grey">
+                      {i.payload.before?.path ?? '—'} → <span className="text-brand-sky">{i.payload.after.path}</span>
                     </div>
                     <div className="text-xs">{statusLabel(i.status)}</div>
+                    {i.status !== 'applying' && (
+                      <button
+                        aria-label={`Remove ${i.brand.global_brand_nm}`}
+                        onClick={() => removeItem(i.id)}
+                        className="text-xs px-2 py-0.5 rounded border border-white/30 text-brand-grey hover:bg-white/10 mt-1">
+                        Remove
+                      </button>
+                    )}
                     {i.status === 'failed' && i.error?.message && (
-                      <div className="text-xs text-red-700 mt-1">{i.error.message}</div>
+                      <div className="text-xs text-brand-horizon mt-1">{i.error.message}</div>
                     )}
                     {missingV3 && (onResolveOne || onSetManualV3) && (
                       <div className="mt-2">
@@ -143,7 +157,7 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
                                   setResolvingId(null);
                                 }
                               }}
-                              className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white disabled:opacity-50">
+                              className="text-xs px-2 py-0.5 rounded bg-brand-peak hover:bg-brand-peakhover text-white disabled:opacity-50">
                               {isResolvingThis ? 'Resolving V3…' : 'Resolve V3 for this brand'}
                             </button>
                           )}
@@ -155,23 +169,23 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
                                 setManualBrandId('');
                                 setResolveError(null);
                               }}
-                              className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-800">
+                              className="text-xs px-2 py-0.5 rounded border border-white/30 text-white hover:bg-white/10">
                               Enter V3 ids manually
                             </button>
                           )}
                         </div>
 
                         {manualForBrand === i.brand.global_brand_id && (
-                          <div className="mt-2 flex items-center gap-2 bg-slate-50 border rounded p-2">
+                          <div className="mt-2 flex items-center gap-2 bg-brand-navy border border-white/15 rounded p-2">
                             <label className="text-xs">V3 advertiser id
                               <input type="number" value={manualAdvId}
                                 onChange={(e) => setManualAdvId(e.target.value)}
-                                className="ml-1 border rounded px-1 py-0.5 w-28 text-xs" />
+                                className="ml-1 bg-brand-surface border border-white/20 rounded px-1 py-0.5 w-28 text-xs text-white" />
                             </label>
                             <label className="text-xs">V3 brand id
                               <input type="number" value={manualBrandId}
                                 onChange={(e) => setManualBrandId(e.target.value)}
-                                className="ml-1 border rounded px-1 py-0.5 w-28 text-xs" />
+                                className="ml-1 bg-brand-surface border border-white/20 rounded px-1 py-0.5 w-28 text-xs text-white" />
                             </label>
                             <button
                               onClick={() => {
@@ -186,19 +200,19 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
                                 setManualForBrand(null);
                                 setResolveError(null);
                               }}
-                              className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white">
+                              className="text-xs px-2 py-0.5 rounded bg-brand-peak hover:bg-brand-peakhover text-white">
                               Save
                             </button>
                             <button
                               onClick={() => { setManualForBrand(null); setResolveError(null); }}
-                              className="text-xs px-2 py-0.5 rounded bg-slate-200">
+                              className="text-xs px-2 py-0.5 rounded border border-white/30 text-white hover:bg-white/10">
                               Cancel
                             </button>
                           </div>
                         )}
 
                         {resolveError && resolvingId == null && (
-                          <div className="text-xs text-red-700 mt-1">{resolveError}</div>
+                          <div className="text-xs text-brand-horizon mt-1">{resolveError}</div>
                         )}
                       </div>
                     )}
@@ -215,28 +229,42 @@ export function ReviewApplyModal({ open, onClose, rows = [], onResolveOne, onSet
               Zendesk draft email ({zendeskItems.length} {zendeskItems.length === 1 ? 'brand' : 'brands'})
             </h3>
             <textarea readOnly
-              className="w-full h-48 border rounded p-2 font-mono text-xs"
+              className="w-full h-48 bg-brand-surface border border-white/20 rounded p-2 font-mono text-xs text-brand-grey"
               value={zendeskBody} />
             <div className="mt-2 flex gap-2">
               <button
-                onClick={() => navigator.clipboard.writeText(zendeskBody)}
-                className="px-3 py-1 bg-emerald-600 text-white rounded text-sm">
+                onClick={() => {
+                  setCopyStatus(null);
+                  navigator.clipboard.writeText(zendeskBody)
+                    .then(() => setCopyStatus('copied'))
+                    .catch((err) => {
+                      console.error('Clipboard copy failed:', err);
+                      setCopyStatus('failed');
+                    });
+                }}
+                className="px-3 py-1 bg-brand-peak hover:bg-brand-peakhover text-white rounded text-sm">
                 Copy to clipboard
               </button>
+              {copyStatus === 'copied' && (
+                <span className="text-sm text-brand-success self-center">Copied to clipboard</span>
+              )}
+              {copyStatus === 'failed' && (
+                <span className="text-sm text-brand-horizon self-center">Copy failed — select the text above and copy manually.</span>
+              )}
               <button
                 onClick={() => {
                   if (window.confirm(`Clear all ${zendeskItems.length} Zendesk draft entries?`)) {
                     zendeskItems.forEach((i) => removeItem(i.id));
                   }
                 }}
-                className="px-3 py-1 bg-slate-200 rounded text-sm">
+                className="px-3 py-1 border border-white/30 text-white hover:bg-white/10 rounded text-sm">
                 Clear all drafts
               </button>
             </div>
           </section>
         )}
 
-        <button className="px-4 py-2 bg-emerald-600 text-white rounded disabled:opacity-50"
+        <button className="px-5 py-2 bg-brand-peak hover:bg-brand-peakhover text-white font-semibold rounded disabled:opacity-50"
           onClick={applyAll} disabled={applying || amItems.length === 0}>
           {applying ? 'Applying…' : 'Apply'}
         </button>

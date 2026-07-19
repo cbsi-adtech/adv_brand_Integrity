@@ -35,6 +35,17 @@ describe('applyFilters', () => {
     expect(applyFilters(rows, { side: 'pg-only' })).toEqual([rows[1]]);
   });
 
+  // Pinning: side undefined (the "All" select option) means no side filter.
+  it('side=undefined returns all rows (no side filter)', () => {
+    expect(applyFilters(rows, { side: undefined })).toHaveLength(2);
+  });
+
+  // Pinning: 'both' is a real filter requiring BOTH modules present —
+  // distinct from the unfiltered default.
+  it('side="both" requires both am and pg present', () => {
+    expect(applyFilters(rows, { side: 'both' })).toEqual([rows[0]]);
+  });
+
   it('severity filter (multi)', () => {
     expect(applyFilters(rows, { severities: ['low'] })).toEqual([rows[1]]);
   });
