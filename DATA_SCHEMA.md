@@ -48,7 +48,7 @@ FreeWheel stores the **full ancestor/descendant chain** in `global_industry_ids[
 
 **Correct approach — two options:**
 
-**Option A (SQL):** Use `ARRAY_TO_STRING(global_industry_ids, '|')` to pass the full array as a pipe-delimited string, then resolve minimum-depth entry client-side using the taxonomy.
+**Option A (SQL):** Pass the full array as a pipe-delimited string — note `ARRAY_TO_STRING` requires `ARRAY<STRING>`, so cast: `(SELECT STRING_AGG(CAST(id AS STRING), '|') FROM UNNEST(global_industry_ids) AS id)` — then resolve minimum-depth entry client-side using the taxonomy.
 
 **Option B (SQL):** Use `global_industry_ids[SAFE_OFFSET(0)]` as a starting point, then walk up to depth-0 root using the taxonomy hierarchy. This is what the dashboard does in JavaScript via `walkToRoot()`.
 
@@ -77,11 +77,11 @@ All dims in `fw_datafeed_dim_vw`.
 
 ### `advertiser_dim`
 
-FW sub-granular advertiser entity — different from `global_advertiser_dim`. Reflects how Paramount's AM team mapped the entity in Streaming Hub. Not on `demand_portfolio_hourly_fct`; only on `direct_sold_ni_hourly_fct` via scalar `advertiser_id`.
+FW sub-granular (V3) advertiser entity — different from `global_advertiser_dim`. Reflects how Paramount's AM team mapped the entity in Streaming Hub. **Has NO `global_advertiser_id` column** (verified against INFORMATION_SCHEMA 2026-07-19); columns are `advertiser_id`, `advertiser_nm`, `external_id`, `industry_desc`, …. The global↔V3 linkage goes through the fact table's `campaign_id`: `campaign_dim.advertiser_id` is the V3 advertiser.
 
 ### `brand_dim`
 
-FW sub-granular brand entity. Same caveat as `advertiser_dim` — not on DP fact.
+FW sub-granular (V3) brand entity. Same caveat — **no `global_brand_id` column**. The linkage goes through the fact table's `insertion_order_id`: `insertion_order_dim.brand_id` is the V3 brand. Only direct-sold (channel 2) rows carry meaningful `campaign_id`/`insertion_order_id`, so V3 ids are only derivable for brands with Advertiser Module delivery; other brands resolve via the dashboard server's live FreeWheel search (`/api/resolve-v3`).
 
 ---
 
@@ -108,6 +108,8 @@ FW sub-granular brand entity. Same caveat as `advertiser_dim` — not on DP fact
 
 ## The Working Query (Dashboard Power Query)
 
+> **Superseded 2026-07-19:** the current import query is [docs/bq-export-last-7-days.sql](docs/bq-export-last-7-days.sql), which matches the `bq-sql.js` adapter's pivoted one-row-per-brand format. The query below is the legacy per-module shape and contains two known errors: `ARRAY_TO_STRING` on `ARRAY<INT64>` needs a `CAST` (see Option A above), and the `advertiser_dim`/`brand_dim` joins reference `global_*` columns that do not exist on those dims (see the dim table notes above for the real campaign/IO linkage).
+
 This is the single query that populates all three dashboard tabs. Run for any date range and paste CSV output.
 
 ```sql
@@ -122,7 +124,8 @@ WITH base AS (
     END                                                    AS module,
     brand_id,
     advertiser_id,
-    ARRAY_TO_STRING(fw.global_industry_ids, '|')           AS applied_industry_ids_raw,
+    (SELECT STRING_AGG(CAST(id AS STRING), '|')
+     FROM UNNEST(fw.global_industry_ids) AS id)             AS applied_industry_ids_raw,
     SUM(fw.net_counted_ads_nbr)                            AS impressions,
     SUM(fw.run_revenue_amt)                                AS revenue
   FROM `i-digital-adsales-prod.fw_datafeed_fact_vw.demand_portfolio_hourly_fct` AS fw
