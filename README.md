@@ -45,8 +45,13 @@ CSV column expectations are documented inline in the paste dialog. The full BigQ
 ├── index.html              # Vite entry HTML
 ├── src/
 │   ├── main.jsx            # React root
-│   ├── Dashboard.jsx       # Single-file dashboard (views, mock data, parsing)
+│   ├── AppNew.jsx          # App shell (data loading, V3 resolution, layout)
+│   ├── data/               # Canonical model, taxonomy, CSV/BQ/FW adapters
+│   ├── flags/              # Integrity flag detection (F1, F1_AM, F2…)
+│   ├── state/              # Pending-changes store (zustand)
+│   ├── views/              # Table, drawers, review/apply modal, dialogs
 │   └── index.css           # Tailwind layers
+├── server/                 # Express BFF (FreeWheel MCP, V3 resolver, audit)
 ├── tailwind.config.js
 ├── postcss.config.js
 ├── vite.config.js

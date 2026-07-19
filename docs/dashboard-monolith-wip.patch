@@ -1,0 +1,816 @@
+diff --git a/src/Dashboard.jsx b/src/Dashboard.jsx
+index e5d614c..319526d 100644
+--- a/src/Dashboard.jsx
++++ b/src/Dashboard.jsx
+@@ -24,6 +24,39 @@ import { AlertTriangle, AlertCircle, Search, ArrowUpDown, ArrowUp, ArrowDown, Ch
+ const INDUSTRY_BY_ID = new Map(FW_INDUSTRIES.map(([id, name, depth]) => [id, { id, name, depth }]));
+ const GROUP_BY_ID = new Map(FW_GROUPS.map(([id, name]) => [id, { id, name }]));
+ 
++// Industries that are too generic for brand assignment — every brand using one
++// of these as AM-applied or as the FW canonical (brand-level) industry needs
++// to be reclassified to a more specific child. These are all depth-0 parents
++// with usable child subtrees, where assigning at the parent over-blocks
++// inventory and obscures separation.
++const TOO_GENERIC_IDS = new Set([
++  95,    // Apparel Manufacture
++  202,   // Clothing Stores
++  205,   // Consumer Electronics Stores
++  60,    // Consumer Finance
++  207,   // Cosmetics, Beauty Supply, and Perfume Stores
++  5109,  // Fashion accessories
++  388,   // Food - Packaged
++  173,   // Gambling Operations
++  78,    // Healthcare
++  9342,  // Home Products
++  123,   // Household Appliance Manufacture
++  5228,  // Housekeeping
++  299,   // Information Technology
++  5258,  // Internet
++  373,   // Pharmaceutical Manufacture and Sale - over the counter
++  89,    // Pharmaceutical Manufacture and Sale - prescription
++  9127,  // Political Issues and Policy
++  378,   // Politicians
++  9157,  // Software Applications
++  5384,  // Toiletries
++  158,   // Toy Manufacture
++]);
++
++function isTooGeneric(id) {
++  return id != null && TOO_GENERIC_IDS.has(id);
++}
++
+ function classifyId(id) {
+   if (id == null) return 'null';
+   if (INDUSTRY_BY_ID.has(id)) return 'industry';
+@@ -60,6 +93,37 @@ function resolveFromPipeString(pipeStr) {
+   return minId;
+ }
+ 
++// Compute the display name for a pipe-string assignment.
++// When the FW taxonomy lacks a parent ID for a conceptual group (e.g. "Insurance
++// Carriers" exists only as a name prefix on its children), FW expands the
++// assignment into the full child subtree. In that case every ID's name shares
++// a common " > "-separated prefix — that prefix IS the actual industry the AM
++// targeted, and it's what the user needs to see.
++//
++// Single-ID strings just return that ID's full name unchanged.
++function displayNameFromPipeString(pipeStr) {
++  if (!pipeStr || typeof pipeStr !== 'string') return null;
++  const names = [];
++  for (const part of pipeStr.split('|')) {
++    const id = Number(part.trim());
++    if (!id || isNaN(id)) continue;
++    const entry = INDUSTRY_BY_ID.get(id);
++    if (entry) names.push(entry.name);
++  }
++  if (names.length === 0) return null;
++  if (names.length === 1) return names[0];
++  // Find longest common " > "-separated prefix across all entries
++  const split = names.map(n => n.split(' > '));
++  const minLen = Math.min(...split.map(p => p.length));
++  const common = [];
++  for (let i = 0; i < minLen; i++) {
++    const seg = split[0][i];
++    if (split.every(p => p[i] === seg)) common.push(seg);
++    else break;
++  }
++  return common.length > 0 ? common.join(' > ') : names[0];
++}
++
+ // ─── MOCK DATA — using REAL FreeWheel industry IDs ───
+ // All IDs verified against canonical taxonomy.
+ // Mismatches model real Paramount AM-vs-FW disagreement patterns.
+@@ -314,6 +378,8 @@ export default function Dashboard() {
+   const [sort, setSort] = useState({ col: 'am_revenue', dir: 'desc' });
+   const [drawerOpen, setDrawerOpen] = useState(false);
+   const [browserOpen, setBrowserOpen] = useState(false);
++  // When set, render IndustryBrowser in pick mode for this specific row.
++  const [pickerForRow, setPickerForRow] = useState(null);
+   const [unmapped, setUnmapped] = useState(MOCK_UNMAPPED);
+   const [mismatchRaw, setMismatchRaw] = useState(MOCK_MISMATCH);
+   const [dataSource, setDataSource] = useState('mock');
+@@ -336,9 +402,14 @@ export default function Dashboard() {
+   }, []);
+ 
+   function pendingKey(r) {
+-    return r.v3_advertiser_id != null && r.v3_brand_id != null
+-      ? `${r.v3_advertiser_id}:${r.v3_brand_id}`
+-      : null;
++    if (r.v3_advertiser_id != null && r.v3_brand_id != null) {
++      return `${r.v3_advertiser_id}:${r.v3_brand_id}`;
++    }
++    // Fallback so users can still stage edits visually for rows without
++    // resolved V3 IDs. The Save/Apply step will fail with a clear error
++    // until v3 IDs are populated upstream — but the visual change holds.
++    if (r.global_brand_id != null) return `gb:${r.global_brand_id}`;
++    return null;
+   }
+ 
+   // Enrich mismatch rows with computed names + status.
+@@ -350,21 +421,43 @@ export default function Dashboard() {
+     const am = (r.am_applied_industry_ids_raw != null)
+       ? resolveFromPipeString(String(r.am_applied_industry_ids_raw))
+       : r.am_industry_id ?? null;
+-    const gb = r.gb_industry_id ?? null;
++    const gb = (r.configured_industry_ids_raw != null)
++      ? resolveFromPipeString(String(r.configured_industry_ids_raw))
++      : r.gb_industry_id ?? null;
+     const ind = (r.ind_applied_industry_ids_raw != null)
+       ? resolveFromPipeString(String(r.ind_applied_industry_ids_raw))
+       : r.ind_industry_id ?? null;
+     const enriched = { ...r, am_industry_id: am, gb_industry_id: gb, ind_industry_id: ind };
++    // Display names: when a pipe string has multiple sibling IDs with a common
++    // name prefix, show the prefix (FW's way of representing a parentless group
++    // like "Insurance Carriers") instead of the first child's leaf label.
++    const amNm = (r.am_applied_industry_ids_raw != null)
++      ? displayNameFromPipeString(String(r.am_applied_industry_ids_raw))
++      : industryName(am);
++    const gbNm = (r.configured_industry_ids_raw != null)
++      ? displayNameFromPipeString(String(r.configured_industry_ids_raw))
++      : industryName(gb);
++    const indNm = (r.ind_applied_industry_ids_raw != null)
++      ? displayNameFromPipeString(String(r.ind_applied_industry_ids_raw))
++      : industryName(ind);
++    const amTooGeneric = isTooGeneric(am);
++    const gbTooGeneric = isTooGeneric(gb);
++    const indTooGeneric = isTooGeneric(ind);
+     return {
+       ...enriched,
+-      am_industry_nm: industryName(am),
+-      gb_industry_nm: industryName(gb),
+-      ind_industry_nm: industryName(ind),
++      am_industry_nm: amNm,
++      gb_industry_nm: gbNm,
++      ind_industry_nm: indNm,
+       am_id_class: classifyId(am),
+       gb_id_class: classifyId(gb),
+       ind_id_class: classifyId(ind),
+       status: rowStatus(enriched),
+       indirect_overridden: indirectOverridden(enriched),
++      am_too_generic: amTooGeneric,
++      gb_too_generic: gbTooGeneric,
++      ind_too_generic: indTooGeneric,
++      // Brand needs reclassification if AM-applied or FW canonical (which PG inherits) is too generic
++      too_generic: amTooGeneric || gbTooGeneric || indTooGeneric,
+     };
+   }), [mismatchRaw]);
+ 
+@@ -374,9 +467,11 @@ export default function Dashboard() {
+     const mismatches = mismatch.filter(r => r.status === 'mismatch');
+     const groupMisuse = mismatch.filter(r => r.status === 'group_misuse');
+     const orphans = mismatch.filter(r => r.status === 'indirect_only' || r.status === 'direct_only');
++    const tooGeneric = mismatch.filter(r => r.too_generic);
+     const revMismatch = mismatches.reduce((s, r) => s + (Number(r.am_revenue) || 0) + (Number(r.ind_revenue) || 0), 0);
+     const revGroupMisuse = groupMisuse.reduce((s, r) => s + (Number(r.am_revenue) || 0) + (Number(r.ind_revenue) || 0), 0);
+-    return { totalUnmapped, revUnmapped, mismatchCount: mismatches.length, groupMisuseCount: groupMisuse.length, orphanCount: orphans.length, revMismatch, revGroupMisuse };
++    const revTooGeneric = tooGeneric.reduce((s, r) => s + (Number(r.am_revenue) || 0) + (Number(r.ind_revenue) || 0), 0);
++    return { totalUnmapped, revUnmapped, mismatchCount: mismatches.length, groupMisuseCount: groupMisuse.length, orphanCount: orphans.length, tooGenericCount: tooGeneric.length, revMismatch, revGroupMisuse, revTooGeneric };
+   }, [unmapped, mismatch]);
+ 
+   const activeRows = useMemo(() => {
+@@ -384,9 +479,10 @@ export default function Dashboard() {
+     if (tab === 'unmapped') rows = unmapped;
+     else {
+       rows = mismatch;
+-      if (statusFilter === 'problems') rows = rows.filter(r => r.status !== 'aligned');
++      if (statusFilter === 'problems') rows = rows.filter(r => r.status !== 'aligned' || r.too_generic);
+       else if (statusFilter === 'mismatch') rows = rows.filter(r => r.status === 'mismatch');
+       else if (statusFilter === 'group_misuse') rows = rows.filter(r => r.status === 'group_misuse');
++      else if (statusFilter === 'too_generic') rows = rows.filter(r => r.too_generic);
+     }
+     if (search) {
+       const s = search.toLowerCase();
+@@ -566,7 +662,7 @@ export default function Dashboard() {
+               </div>
+               {tab === 'mismatches' && (
+                 <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md p-0.5">
+-                  {[['problems', 'All problems'], ['mismatch', 'Mismatch'], ['group_misuse', 'Group misuse'], ['all', 'Including aligned']].map(([k, l]) => (
++                  {[['problems', 'All problems'], ['mismatch', 'Mismatch'], ['group_misuse', 'Group misuse'], ['too_generic', 'Too generic'], ['all', 'Including aligned']].map(([k, l]) => (
+                     <button key={k} onClick={() => setStatusFilter(k)}
+                       className={`px-3 py-1 text-xs font-medium rounded ${statusFilter === k ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+                       {l}
+@@ -586,6 +682,7 @@ export default function Dashboard() {
+                     onIndustryClick={() => setBrowserOpen(true)}
+                     industries={industries}
+                     pending={pending}
++                    onOpenPicker={(row) => setPickerForRow(row)}
+                     onPick={(row, ind) => {
+                       const key = pendingKey(row);
+                       if (!key) return;
+@@ -691,8 +788,41 @@ export default function Dashboard() {
+         </div>
+       </main>
+ 
++      <StagingRail
++        pending={pending}
++        mismatch={mismatch}
++        environment={healthEnv}
++        onUnstage={(key) => setPending((prev) => { const { [key]: _drop, ...rest } = prev; return rest; })}
++        onClear={() => {
++          if (Object.keys(pending).length === 0) return;
++          if (window.confirm(`Discard all ${Object.keys(pending).length} staged changes?`)) setPending({});
++        }}
++        onReview={() => setReviewOpen(true)}
++      />
+       {drawerOpen && <DataDrawer onClose={() => setDrawerOpen(false)} onPaste={handlePaste} onReset={resetToMock} />}
+       {browserOpen && <IndustryBrowser onClose={() => setBrowserOpen(false)} />}
++      {pickerForRow && (
++        <IndustryBrowser
++          contextRow={pickerForRow}
++          onClose={() => setPickerForRow(null)}
++          onPick={(picked) => {
++            const key = pendingKey(pickerForRow);
++            if (!key) return;
++            setPending((prev) => ({
++              ...prev,
++              [key]: {
++                v3_advertiser_id: pickerForRow.v3_advertiser_id,
++                v3_brand_id: pickerForRow.v3_brand_id,
++                brand_name: pickerForRow.global_brand_nm,
++                current_industry_id: pickerForRow.am_industry_id,
++                new_industry_id: picked.id,
++                new_industry_name: picked.name,
++              },
++            }));
++            setPickerForRow(null);
++          }}
++        />
++      )}
+       <ReviewModal
+         open={reviewOpen}
+         onClose={() => setReviewOpen(false)}
+@@ -906,84 +1036,29 @@ function PendingBar({ count, onReview, onDiscardAll }) {
+   );
+ }
+ 
+-function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onResolveRow, onApplyOne }) {
+-  const [open, setOpen] = useState(false);
+-  const [query, setQuery] = useState('');
+-  const [resolvingThisRow, setResolvingThisRow] = useState(false);
+-  const [resolveError, setResolveError] = useState(null);
++function IndustryEditCell({ row, pendingEntry, onRevert, onApplyOne, onOpenPicker }) {
+   const [savingThisRow, setSavingThisRow] = useState(false);
+   const [saveError, setSaveError] = useState(null);
+-  const canEdit = row.v3_advertiser_id != null && row.v3_brand_id != null && industries?.assignable?.length > 0;
+ 
+   const display = pendingEntry
+     ? { id: pendingEntry.new_industry_id, name: pendingEntry.new_industry_name }
+     : { id: row.am_industry_id, name: row.am_industry_nm };
+ 
+-  const filtered = useMemo(() => {
+-    if (!industries) return [];
+-    const q = query.trim().toLowerCase();
+-    const list = industries.assignable;
+-    if (!q) return list.slice(0, 100);
+-    return list
+-      .filter((i) => i.name.toLowerCase().includes(q) || String(i.id).includes(q) || i.path.toLowerCase().includes(q))
+-      .slice(0, 100);
+-  }, [industries, query]);
+-
+-  if (!canEdit) {
+-    if (!industries?.assignable?.length) {
+-      return (
+-        <span title="Loading taxonomy…">
+-          <IndustryChip id={display.id} name={display.name} klass={row.am_id_class} highlight={row.status === 'mismatch'} />
+-        </span>
+-      );
+-    }
+-    const canResolve = typeof onResolveRow === 'function' && row.global_brand_id != null && row.global_advertiser_nm;
+-    return (
+-      <div className="inline-flex items-center gap-2">
+-        <IndustryChip id={display.id} name={display.name} klass={row.am_id_class} highlight={row.status === 'mismatch'} />
+-        {canResolve && (
+-          <button
+-            type="button"
+-            disabled={resolvingThisRow}
+-            onClick={async () => {
+-              setResolveError(null);
+-              setResolvingThisRow(true);
+-              try {
+-                const ok = await onResolveRow(row);
+-                if (ok) {
+-                  setOpen(true);
+-                } else {
+-                  setResolveError('No V3 match found');
+-                }
+-              } catch (err) {
+-                setResolveError(err?.message || 'resolve failed');
+-              } finally {
+-                setResolvingThisRow(false);
+-              }
+-            }}
+-            className="text-[11px] px-2 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+-            title="Look up this brand's V3 IDs in FreeWheel so the industry can be edited"
+-          >
+-            {resolvingThisRow ? 'Resolving…' : 'Resolve V3'}
+-          </button>
+-        )}
+-        {resolveError && <span className="text-[11px] text-red-700" title={resolveError}>✗</span>}
+-      </div>
+-    );
+-  }
++  const openPicker = () => typeof onOpenPicker === 'function' && onOpenPicker(row);
+ 
+   return (
+-    <div className="relative inline-block">
+-      <button
+-        type="button"
+-        onClick={() => setOpen((v) => !v)}
+-        className="text-left"
+-      >
+-        <IndustryChip id={display.id} name={display.name} klass={row.am_id_class} highlight={row.status === 'mismatch'} />
+-        {pendingEntry && (
+-          <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 align-middle">pending</span>
+-        )}
+-      </button>
++    <div className="inline-flex items-center gap-2 flex-wrap">
++      {/* Chip itself is the click target — clicking it opens the full taxonomy picker */}
++      <IndustryChip
++        id={display.id}
++        name={display.name}
++        klass={row.am_id_class}
++        highlight={row.status === 'mismatch'}
++        onClick={openPicker}
++      />
++      {pendingEntry && (
++        <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">pending</span>
++      )}
+       {pendingEntry && (
+         <>
+           <button
+@@ -1005,7 +1080,7 @@ function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onR
+                 setSavingThisRow(false);
+               }
+             }}
+-            className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
++            className="text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+             title="Push this change to FreeWheel"
+           >
+             {savingThisRow ? 'Saving…' : 'Save'}
+@@ -1014,54 +1089,25 @@ function IndustryEditCell({ row, industries, pendingEntry, onPick, onRevert, onR
+             type="button"
+             disabled={savingThisRow}
+             onClick={(e) => { e.stopPropagation(); onRevert(); }}
+-            className="ml-1 text-slate-400 hover:text-slate-700 text-xs disabled:opacity-40"
++            className="text-slate-400 hover:text-slate-700 text-xs disabled:opacity-40"
+             title="Discard this pending change"
+           >↺</button>
+-          {saveError && <span className="ml-2 text-[11px] text-red-700" title={saveError}>✗ {saveError}</span>}
++          {saveError && <span className="text-[11px] text-red-700" title={saveError}>✗ {saveError}</span>}
+         </>
+       )}
+-      {open && (
+-        <div className="absolute z-50 mt-1 left-0 w-80 bg-white border border-slate-200 rounded-md shadow-lg">
+-          <div className="p-2 border-b border-slate-100">
+-            <input
+-              autoFocus
+-              value={query}
+-              onChange={(e) => setQuery(e.target.value)}
+-              placeholder="Search industries…"
+-              className="w-full text-sm px-2 py-1 border border-slate-200 rounded outline-none focus:border-blue-400"
+-              onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
+-            />
+-          </div>
+-          <ul className="max-h-72 overflow-auto">
+-            {filtered.length === 0 && <li className="px-3 py-2 text-xs text-slate-400">No matches</li>}
+-            {filtered.map((i) => (
+-              <li key={i.id}>
+-                <button
+-                  type="button"
+-                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 flex items-center justify-between gap-2"
+-                  onClick={() => { onPick(i); setOpen(false); setQuery(''); }}
+-                >
+-                  <span className="truncate">{i.path}</span>
+-                  <span className="text-[10px] text-slate-400 tabular-nums">{i.id} · d{i.depth}</span>
+-                </button>
+-              </li>
+-            ))}
+-          </ul>
+-        </div>
+-      )}
+     </div>
+   );
+ }
+ 
+-function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries, pending, onPick, onRevert, onResolveRow, onApplyOne }) {
++function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries, pending, onPick, onRevert, onResolveRow, onApplyOne, onOpenPicker }) {
+   return (
+     <table className="w-full">
+       <thead>
+         <tr>
++          <Th col="pmnt_advertiser_nm" toggleSort={toggleSort} SortIcon={SortIcon}>Advertiser</Th>
+           <Th col="v3_brand_id" toggleSort={toggleSort} SortIcon={SortIcon} width="110px">AM Brand ID</Th>
+           <Th col="global_brand_nm" toggleSort={toggleSort} SortIcon={SortIcon}>Brand</Th>
+           <Th col="am_industry_nm" toggleSort={toggleSort} SortIcon={SortIcon}>AM Industry <span className="text-slate-400 font-normal normal-case">(applied)</span></Th>
+-          <Th col="gb_industry_nm" toggleSort={toggleSort} SortIcon={SortIcon}>Global Brand Industry <span className="text-slate-400 font-normal normal-case">(FW canonical)</span></Th>
+           <Th col="ind_industry_nm" toggleSort={toggleSort} SortIcon={SortIcon}>Indirect Applied <span className="text-slate-400 font-normal normal-case">(PG/MP)</span></Th>
+           <Th col="am_revenue" toggleSort={toggleSort} SortIcon={SortIcon} align="right">AM Rev</Th>
+           <Th col="ind_revenue" toggleSort={toggleSort} SortIcon={SortIcon} align="right">Ind Rev</Th>
+@@ -1069,32 +1115,63 @@ function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries
+         </tr>
+       </thead>
+       <tbody>
+-        {rows.length === 0 && <tr><td colSpan={8} className="text-center text-sm text-slate-400 py-12">No issues in current filter.</td></tr>}
++        {rows.length === 0 && <tr><td colSpan={9} className="text-center text-sm text-slate-400 py-12">No issues in current filter.</td></tr>}
+         {rows.map((r, i) => {
+           const rowTone =
+             r.status === 'group_misuse' ? 'bg-orange-50/40' :
+             r.status === 'mismatch' ? 'bg-red-50/30' :
++            r.too_generic ? 'bg-amber-50/30' :
+             (r.status === 'indirect_only' || r.status === 'direct_only') ? 'bg-blue-50/30' : '';
++          // Match the fallback key logic in pendingKey() so rows without V3 IDs still see staged edits
++          const pKey = (r.v3_advertiser_id != null && r.v3_brand_id != null)
++            ? `${r.v3_advertiser_id}:${r.v3_brand_id}`
++            : (r.global_brand_id != null ? `gb:${r.global_brand_id}` : null);
++          const pendingEntry = pKey ? pending[pKey] : undefined;
+           return (
+             <tr key={`${r.global_brand_id}-${i}`} className={`border-b border-slate-100 hover:bg-slate-50/60 transition ${rowTone}`}>
++              <td className="px-4 py-3">
++                {r.pmnt_advertiser_nm
++                  ? <div className="flex flex-col gap-0.5">
++                      <span className="text-sm font-medium text-slate-900 leading-snug">{r.pmnt_advertiser_nm}</span>
++                      {r.v3_advertiser_id != null && <span className="text-[11px] font-mono text-slate-400 tabular-nums">ID {r.v3_advertiser_id}</span>}
++                    </div>
++                  : <span className="italic text-slate-400 text-sm">—</span>}
++              </td>
+               <td className="px-4 py-3 text-sm font-mono text-slate-500 tabular-nums">
+                 {r.v3_brand_id != null
+                   ? r.v3_brand_id
+                   : <span className="italic text-slate-400" title={`No V3 brand mapping. Global brand ID: ${r.global_brand_id}. Re-export with v3_brand_id column.`}>—</span>}
+               </td>
+-              <td className="px-4 py-3 text-sm font-medium text-slate-900">{r.global_brand_nm}</td>
++              <td className="px-4 py-3 text-sm font-medium text-slate-900">
++                <div>{r.global_brand_nm}</div>
++                {/* Subtle FW canonical subtitle so the value the change is targeting stays visible */}
++                {r.gb_industry_id != null && (
++                  <div className="text-[11px] text-slate-400 mt-0.5" title={`FW canonical: ${r.gb_industry_id} · ${r.gb_industry_nm || ''}`}>
++                    FW: <span className="font-mono">{r.gb_industry_id}</span> {r.gb_industry_nm || ''}
++                    {r.gb_too_generic && (
++                      <span className="ml-1 inline-flex items-center gap-0.5 text-amber-700 font-medium" title="FW canonical is a top-level industry — reclassify to a child">
++                        <AlertCircle className="w-3 h-3" /> too generic
++                      </span>
++                    )}
++                  </div>
++                )}
++              </td>
+               <td className="px-3 py-3">
+                 <IndustryEditCell
+                   row={r}
+                   industries={industries}
+-                  pendingEntry={pending[`${r.v3_advertiser_id}:${r.v3_brand_id}`]}
+-                  onPick={(ind) => onPick(r, ind)}
++                  pendingEntry={pendingEntry}
+                   onRevert={() => onRevert(r)}
+                   onResolveRow={onResolveRow}
+                   onApplyOne={onApplyOne}
++                  onOpenPicker={onOpenPicker}
+                 />
++                {r.am_too_generic && (
++                  <div className="text-[10px] text-amber-700 mt-1 flex items-center gap-1" title="AM-applied is a top-level industry — reclassify to a child">
++                    <AlertCircle className="w-3 h-3" /> too generic — reclassify
++                  </div>
++                )}
+               </td>
+-              <td className="px-3 py-3"><IndustryChip id={r.gb_industry_id} name={r.gb_industry_nm} klass={r.gb_id_class} onClick={onIndustryClick} highlight={r.status === 'mismatch'} canonical /></td>
+               <td className="px-3 py-3">
+                 <IndustryChip id={r.ind_industry_id} name={r.ind_industry_nm} klass={r.ind_id_class} onClick={onIndustryClick} />
+                 {r.indirect_overridden && r.status !== 'indirect_only' && (
+@@ -1102,10 +1179,24 @@ function MismatchTable({ rows, toggleSort, SortIcon, onIndustryClick, industries
+                     <AlertCircle className="w-3 h-3" /> overridden vs global
+                   </div>
+                 )}
++                {r.ind_too_generic && (
++                  <div className="text-[10px] text-amber-700 mt-1 flex items-center gap-1" title="PG-applied is a top-level industry — brand record needs reclassification">
++                    <AlertCircle className="w-3 h-3" /> too generic — reclassify
++                  </div>
++                )}
+               </td>
+               <td className="px-4 py-3 text-sm text-right text-slate-900 tabular-nums">{fmt.usd(r.am_revenue)}</td>
+               <td className="px-4 py-3 text-sm text-right text-slate-900 tabular-nums">{fmt.usd(r.ind_revenue)}</td>
+-              <td className="px-4 py-3"><StatusPill status={r.status} /></td>
++              <td className="px-4 py-3">
++                <StatusPill status={r.status} />
++                {r.too_generic && (
++                  <div className="mt-1">
++                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="One or more sides use a top-level industry that should be reclassified">
++                      <AlertCircle className="w-3 h-3" /> Too generic
++                    </span>
++                  </div>
++                )}
++              </td>
+             </tr>
+           );
+         })}
+@@ -1471,8 +1562,13 @@ function IndustryChip({ id, name, klass, onClick, highlight, canonical }) {
+           ? 'border-emerald-200 bg-emerald-50/40 text-slate-800'
+           : 'border-slate-200 bg-white text-slate-700';
+ 
++  // Show just the last segment of a "A > B > C" path as the label; full path in tooltip
++  const parts = name ? name.split(' > ') : [];
++  const shortLabel = parts.length > 1 ? parts[parts.length - 1] : name;
++  const parentLabel = parts.length > 1 ? parts.slice(0, -1).join(' > ') : null;
++
+   return (
+-    <button onClick={onClick} className={`inline-flex flex-col items-start gap-0.5 text-left px-2 py-1 rounded border ${wrap} hover:shadow-sm transition max-w-[260px]`}>
++    <button onClick={onClick} title={name} className={`inline-flex flex-col items-start gap-0.5 text-left px-2 py-1 rounded border ${wrap} hover:shadow-sm transition max-w-[220px]`}>
+       <div className="flex items-center gap-1.5">
+         {isGroup && <Layers className="w-3 h-3 text-orange-600 flex-shrink-0" />}
+         <span className="text-[10px] font-mono text-slate-500">{id}</span>
+@@ -1480,7 +1576,8 @@ function IndustryChip({ id, name, klass, onClick, highlight, canonical }) {
+         {isUnknown && <span className="text-[9px] uppercase tracking-wider font-bold text-slate-500">UNKNOWN</span>}
+         {canonical && !isGroup && !isUnknown && <span className="text-[9px] uppercase tracking-wider font-bold text-emerald-700">CANONICAL</span>}
+       </div>
+-      <span className="text-xs font-medium leading-tight line-clamp-2">{name}</span>
++      {parentLabel && <span className="text-[10px] text-slate-400 leading-tight truncate w-full">{parentLabel}</span>}
++      <span className="text-xs font-medium leading-tight line-clamp-1">{shortLabel}</span>
+     </button>
+   );
+ }
+@@ -1496,6 +1593,110 @@ function StatusPill({ status }) {
+   return <span className={`text-xs font-medium px-2 py-0.5 rounded ${cfg[0]}`}>{cfg[1]}</span>;
+ }
+ 
++// ─── StagingRail ─────────────────────────────────────────────
++// Fixed right-side rail listing every pending change. Auto-slides in when
++// pending count > 0. Modeled on the prog_biddable_dash staging rail.
++function StagingRail({ pending, mismatch, onUnstage, onClear, onReview, environment }) {
++  const items = useMemo(() => {
++    const byKey = (r) => (r.v3_advertiser_id != null && r.v3_brand_id != null)
++      ? `${r.v3_advertiser_id}:${r.v3_brand_id}`
++      : (r.global_brand_id != null ? `gb:${r.global_brand_id}` : null);
++    const rowByKey = new Map();
++    for (const r of mismatch) {
++      const k = byKey(r);
++      if (k) rowByKey.set(k, r);
++    }
++    return Object.entries(pending).map(([key, entry]) => ({
++      key,
++      entry,
++      row: rowByKey.get(key),
++    }));
++  }, [pending, mismatch]);
++
++  const count = items.length;
++  const open = count > 0;
++
++  return (
++    <aside
++      className={`fixed top-0 right-0 h-screen w-80 bg-white border-l border-slate-200 shadow-xl z-40 flex flex-col transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}
++      aria-hidden={!open}
++    >
++      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
++        <div className="flex items-center gap-2">
++          <h3 className="text-sm font-semibold text-slate-900">Staged Changes</h3>
++          <span className="inline-flex items-center justify-center min-w-[1.5rem] h-5 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold tabular-nums">{count}</span>
++        </div>
++        <div className="text-[11px] text-slate-500 mt-0.5">Review before applying to FreeWheel</div>
++      </div>
++
++      <div className="flex-1 overflow-y-auto p-3 space-y-2">
++        {items.map(({ key, entry, row }) => {
++          const fromId = row?.gb_industry_id ?? entry.current_industry_id;
++          const fromName = row?.gb_industry_nm || industryName(fromId) || '—';
++          const toId = entry.new_industry_id;
++          const toName = entry.new_industry_name || industryName(toId) || '—';
++          return (
++            <div key={key} className="border border-slate-200 rounded-md p-2.5 bg-white hover:border-slate-300 transition">
++              <div className="flex items-start justify-between gap-2">
++                <div className="min-w-0 flex-1">
++                  <div className="text-sm font-medium text-slate-900 truncate" title={entry.brand_name}>
++                    {entry.brand_name || '—'}
++                  </div>
++                  {row?.pmnt_advertiser_nm && (
++                    <div className="text-[10px] text-slate-400 truncate">{row.pmnt_advertiser_nm}</div>
++                  )}
++                </div>
++                <button
++                  type="button"
++                  onClick={() => onUnstage(key)}
++                  className="text-slate-400 hover:text-red-600 text-sm leading-none p-1 -m-1"
++                  title="Discard this change"
++                >✕</button>
++              </div>
++              <div className="mt-2 flex items-center gap-1.5 text-[11px]">
++                <span className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 text-slate-600 truncate max-w-[100px]" title={`${fromId} · ${fromName}`}>
++                  <span className="font-mono text-slate-400">{fromId ?? '—'}</span> {fromName}
++                </span>
++                <span className="text-slate-400">→</span>
++                <span className="px-1.5 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-800 truncate max-w-[120px] font-medium" title={`${toId} · ${toName}`}>
++                  <span className="font-mono">{toId}</span> {toName}
++                </span>
++              </div>
++              {row && row.v3_brand_id == null && (
++                <div className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-700">
++                  <AlertCircle className="w-3 h-3" /> Needs V3 resolution before apply
++                </div>
++              )}
++            </div>
++          );
++        })}
++      </div>
++
++      <div className="border-t border-slate-200 p-3 space-y-2 bg-slate-50">
++        {environment && (
++          <div className="text-[10px] text-slate-500">Target: <span className="font-mono">{environment}</span></div>
++        )}
++        <button
++          type="button"
++          disabled={count === 0}
++          onClick={onReview}
++          className="w-full px-3 py-2 text-sm font-medium rounded bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
++        >
++          Apply {count} Change{count === 1 ? '' : 's'}
++        </button>
++        <button
++          type="button"
++          disabled={count === 0}
++          onClick={onClear}
++          className="w-full px-3 py-1.5 text-xs text-slate-600 hover:text-red-600 disabled:opacity-40"
++        >
++          Clear all
++        </button>
++      </div>
++    </aside>
++  );
++}
++
+ // ─── ReviewModal ─────────────────────────────────────────────
+ function ReviewModal({ open, onClose, pending, environment, onApply, applying }) {
+   if (!open) return null;
+@@ -1590,27 +1791,52 @@ function ResultsModal({ data, onClose }) {
+ }
+ 
+ // ─── Industry Browser ────────────────────────────────────────
+-function IndustryBrowser({ onClose }) {
++function IndustryBrowser({ onClose, onPick, contextRow }) {
+   const [search, setSearch] = useState('');
+   const [showGroups, setShowGroups] = useState(false);
+   const [depthFilter, setDepthFilter] = useState('all');
++  const pickMode = typeof onPick === 'function';
++
++  // In pick mode: only show industries (groups are not assignable for brand mapping).
++  const effectiveShowGroups = pickMode ? false : showGroups;
+ 
+   const filtered = useMemo(() => {
+-    const source = showGroups
++    const source = effectiveShowGroups
+       ? FW_GROUPS.map(([id, name]) => ({ id, name, depth: 0, kind: 'group' }))
+       : FW_INDUSTRIES.map(([id, name, depth]) => ({ id, name, depth, kind: 'industry' }));
+ 
+-    let rows = source;
+-    if (!showGroups && depthFilter !== 'all') {
++    // Sort by name — FW encodes hierarchy as "Parent > Child > Grandchild", so
++    // alphabetical sort by name clusters each parent with its children directly
++    // beneath it, giving the visual tree structure for free.
++    const sorted = [...source].sort((a, b) => a.name.localeCompare(b.name));
++
++    let rows = sorted;
++    if (!effectiveShowGroups && depthFilter !== 'all') {
+       const d = parseInt(depthFilter, 10);
+       rows = rows.filter(r => r.depth === d);
+     }
+     if (search) {
+       const s = search.toLowerCase();
+-      rows = rows.filter(r => r.name.toLowerCase().includes(s) || String(r.id).includes(s));
++      const matches = rows.filter(r => r.name.toLowerCase().includes(s) || String(r.id).includes(s));
++      // When searching, also include each match's parent path for context, so a
++      // hit on "Luxury Cars" still shows under "Automobile Dealerships".
++      if (!effectiveShowGroups) {
++        const parentNames = new Set();
++        for (const m of matches) {
++          const parts = m.name.split(' > ');
++          for (let i = 1; i < parts.length; i++) {
++            parentNames.add(parts.slice(0, i).join(' > '));
++          }
++        }
++        const matchIds = new Set(matches.map(m => m.id));
++        const contextRows = sorted.filter(r => parentNames.has(r.name) && !matchIds.has(r.id));
++        rows = [...matches, ...contextRows].sort((a, b) => a.name.localeCompare(b.name));
++      } else {
++        rows = matches;
++      }
+     }
+     return rows.slice(0, 500);
+-  }, [search, showGroups, depthFilter]);
++  }, [search, effectiveShowGroups, depthFilter]);
+ 
+   return (
+     <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/30" onClick={onClose}>
+@@ -1618,29 +1844,44 @@ function IndustryBrowser({ onClose }) {
+         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+           <div className="flex items-center gap-2">
+             <BookOpen className="w-4 h-4 text-slate-600" />
+-            <h2 className="text-base font-semibold">FreeWheel Industry Taxonomy</h2>
+-            <span className="text-xs text-slate-500">canonical reference</span>
++            <h2 className="text-base font-semibold">
++              {pickMode ? 'Pick AM Industry' : 'FreeWheel Industry Taxonomy'}
++            </h2>
++            <span className="text-xs text-slate-500">
++              {pickMode ? (contextRow?.global_brand_nm || 'select a new industry') : 'canonical reference'}
++            </span>
+           </div>
+           <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+         </div>
+ 
++        {pickMode && contextRow && (
++          <div className="px-6 py-2 border-b border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-center gap-3 flex-wrap">
++            <span><span className="text-slate-400">PG/MP applied:</span> <span className="font-medium text-slate-800">{contextRow.ind_industry_id ?? '—'} {contextRow.ind_industry_nm ? `· ${contextRow.ind_industry_nm}` : ''}</span></span>
++            <span className="text-slate-300">·</span>
++            <span><span className="text-slate-400">FW canonical:</span> <span className="font-medium text-slate-800">{contextRow.gb_industry_id ?? '—'} {contextRow.gb_industry_nm ? `· ${contextRow.gb_industry_nm}` : ''}</span></span>
++          </div>
++        )}
++
+         <div className="px-6 py-3 border-b border-slate-200 space-y-2">
+           <div className="relative">
+             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+             <input value={search} onChange={e => setSearch(e.target.value)}
++              autoFocus
+               placeholder="Search by name or ID…"
+               className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+           </div>
+           <div className="flex items-center gap-2">
+-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md p-0.5">
+-              <button onClick={() => setShowGroups(false)} className={`px-3 py-1 text-xs font-medium rounded ${!showGroups ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>
+-                Industries ({FW_INDUSTRIES.length.toLocaleString()})
+-              </button>
+-              <button onClick={() => setShowGroups(true)} className={`px-3 py-1 text-xs font-medium rounded ${showGroups ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>
+-                Groups ({FW_GROUPS.length})
+-              </button>
+-            </div>
+-            {!showGroups && (
++            {!pickMode && (
++              <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md p-0.5">
++                <button onClick={() => setShowGroups(false)} className={`px-3 py-1 text-xs font-medium rounded ${!showGroups ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>
++                  Industries ({FW_INDUSTRIES.length.toLocaleString()})
++                </button>
++                <button onClick={() => setShowGroups(true)} className={`px-3 py-1 text-xs font-medium rounded ${showGroups ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>
++                  Groups ({FW_GROUPS.length})
++                </button>
++              </div>
++            )}
++            {!effectiveShowGroups && (
+               <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md p-0.5">
+                 {[['all', 'All depths'], ['0', 'Parent'], ['1', 'Child'], ['2', 'Grandchild']].map(([k, l]) => (
+                   <button key={k} onClick={() => setDepthFilter(k)}
+@@ -1654,19 +1895,40 @@ function IndustryBrowser({ onClose }) {
+         </div>
+ 
+         <div className="flex-1 overflow-y-auto">
+-          {filtered.map(r => (
+-            <div key={`${r.kind}-${r.id}`} className="flex items-start gap-3 px-6 py-2 hover:bg-slate-50 border-b border-slate-100">
+-              <span className="font-mono text-xs text-slate-500 w-14 flex-shrink-0 pt-0.5 tabular-nums">{r.id}</span>
+-              <span className="text-sm text-slate-800 leading-snug flex-1">
+-                {r.kind === 'group' && (
+-                  <span className="inline-block text-[9px] uppercase tracking-wider font-bold text-orange-700 bg-orange-100 px-1 py-0.5 rounded mr-1.5 align-middle">GROUP</span>
++          {filtered.map(r => {
++            const indentPx = r.depth * 18;
++            const content = (
++              <>
++                <span className="font-mono text-xs text-slate-500 w-14 flex-shrink-0 pt-0.5 tabular-nums">{r.id}</span>
++                <span className="text-sm text-slate-800 leading-snug flex-1" style={{ paddingLeft: indentPx }}>
++                  {r.kind === 'group' && (
++                    <span className="inline-block text-[9px] uppercase tracking-wider font-bold text-orange-700 bg-orange-100 px-1 py-0.5 rounded mr-1.5 align-middle">GROUP</span>
++                  )}
++                  {r.depth > 0 && <span className="text-slate-400">↳ </span>}
++                  {/* In pick mode, only show the leaf segment — the indentation already shows hierarchy */}
++                  {pickMode && r.depth > 0 ? r.name.split(' > ').slice(-1)[0] : r.name}
++                </span>
++                {pickMode && (
++                  <span className="text-[10px] text-slate-400 tabular-nums pt-0.5 flex-shrink-0">d{r.depth}</span>
+                 )}
+-                {r.depth === 1 && <span className="text-slate-400">↳ </span>}
+-                {r.depth === 2 && <span className="text-slate-400">  ↳ </span>}
+-                {r.name}
+-              </span>
+-            </div>
+-          ))}
++              </>
++            );
++            const baseCls = 'flex items-start gap-3 px-6 py-2 border-b border-slate-100 w-full';
++            return pickMode ? (
++              <button
++                key={`${r.kind}-${r.id}`}
++                type="button"
++                onClick={() => { onPick({ id: r.id, name: r.name, depth: r.depth }); onClose(); }}
++                className={`${baseCls} text-left hover:bg-blue-50 cursor-pointer`}
++              >
++                {content}
++              </button>
++            ) : (
++              <div key={`${r.kind}-${r.id}`} className={`${baseCls} hover:bg-slate-50`}>
++                {content}
++              </div>
++            );
++          })}
+           {filtered.length === 0 && (
+             <div className="text-center text-sm text-slate-400 py-12">No matches.</div>
+           )}
+@@ -1679,7 +1941,7 @@ function IndustryBrowser({ onClose }) {
+           <strong className="text-slate-700">Depth 0</strong>: parent industry (e.g., <span className="font-mono">194 Automobile Dealerships</span>) ·
+           <strong className="text-slate-700"> Depth 1</strong>: child (e.g., <span className="font-mono">9316 &gt; Luxury Cars</span>) ·
+           <strong className="text-slate-700"> Depth 2</strong>: grandchild.
+-          Always use ACTUAL industries (not groups) for brand assignment.
++          {!pickMode && ' Always use ACTUAL industries (not groups) for brand assignment.'}
+         </div>
+       </div>
+     </div>
