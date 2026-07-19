@@ -60,6 +60,39 @@ describe('parseFwReport — industry name list + numbers', () => {
     expect(midas.pg.revenue).toBeCloseTo(2628.91473, 5);
   });
 
+  it('keeps a known comma-containing taxonomy name as a single industry', () => {
+    const csv = [
+      'Global Brand Name,Global Brand ID,Programmatic Industry Name,Run Revenue,Gross Counted Ads',
+      'Sephora,11,"Cosmetics, Beauty Supply, and Perfume Stores",1.5,10',
+    ].join('\n');
+    const [r] = parseFwReport(csv);
+    expect(r.pg.industry_names).toEqual(['Cosmetics, Beauty Supply, and Perfume Stores']);
+  });
+
+  it('splits two industries where one contains commas', () => {
+    const csv = [
+      'Global Brand Name,Global Brand ID,Programmatic Industry Name,Run Revenue,Gross Counted Ads',
+      'X,12,"Restaurants, Cosmetics, Beauty Supply, and Perfume Stores",1.5,10',
+    ].join('\n');
+    const [r] = parseFwReport(csv);
+    expect(r.pg.industry_names).toEqual([
+      'Restaurants',
+      'Cosmetics, Beauty Supply, and Perfume Stores',
+    ]);
+  });
+
+  it('splits known comma-containing names joined without a space after the comma', () => {
+    const csv = [
+      'Global Brand Name,Global Brand ID,Programmatic Industry Name,Run Revenue,Gross Counted Ads',
+      'Y,13,"Cosmetics, Beauty Supply, and Perfume Stores,Restaurants",1.5,10',
+    ].join('\n');
+    const [r] = parseFwReport(csv);
+    expect(r.pg.industry_names).toEqual([
+      'Cosmetics, Beauty Supply, and Perfume Stores',
+      'Restaurants',
+    ]);
+  });
+
   it('coerces empty/missing revenue to 0', () => {
     const noRev = [
       'Global Brand Name,Global Brand ID,Programmatic Industry Name,Run Revenue,Gross Counted Ads',

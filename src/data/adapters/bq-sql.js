@@ -34,6 +34,11 @@ export function parseBqSql(text) {
     v3_brand_id: emptyToNull(r.v3_brand_id),
     am: sideOrNull(r.am_applied_industry_ids_raw, r.am_impressions, r.am_revenue),
     pg: sideOrNull(r.ind_applied_industry_ids_raw, r.ind_impressions, r.ind_revenue),
-    gb: r.gb_industry_id != null ? { industry_id: Number(r.gb_industry_id) } : null,
+    // FW-canonical (Global Brand) industry. Prefer the configured_industry_ids_raw
+    // pipe string (resolved downstream like the am side: deepest common
+    // ancestor); fall back to the legacy single gb_industry_id column.
+    gb: r.configured_industry_ids_raw != null
+      ? { applied_industry_ids_raw: String(r.configured_industry_ids_raw), industry_names: null }
+      : (r.gb_industry_id != null ? { industry_id: Number(r.gb_industry_id) } : null),
   }));
 }

@@ -61,4 +61,29 @@ describe('parseCsv', () => {
     const csv = 'metadata\nmore metadata\nname,age\nAlice,30';
     expect(parseCsv(csv, { firstDataLine: 2 })).toEqual([{ name: 'Alice', age: 30 }]);
   });
+
+  it('parses a quoted field containing a newline as one row', () => {
+    const csv = 'k,v\na,"line1\nline2"\nb,c';
+    expect(parseCsv(csv)).toEqual([
+      { k: 'a', v: 'line1\nline2' },
+      { k: 'b', v: 'c' },
+    ]);
+  });
+
+  it('parses a quoted field containing a CRLF newline as one row', () => {
+    const csv = 'k,v\r\na,"line1\r\nline2"\r\nb,c';
+    expect(parseCsv(csv)).toEqual([
+      { k: 'a', v: 'line1\r\nline2' },
+      { k: 'b', v: 'c' },
+    ]);
+  });
+
+  it('quoted commas and "" escapes survive alongside embedded newlines', () => {
+    const csv = 'k,v\na,"say ""hi"",\nthen leave"';
+    expect(parseCsv(csv)).toEqual([{ k: 'a', v: 'say "hi",\nthen leave' }]);
+  });
+
+  it('ignores trailing newline at end of input', () => {
+    expect(parseCsv('k,v\na,1\n')).toEqual([{ k: 'a', v: 1 }]);
+  });
 });

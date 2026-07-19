@@ -1,3 +1,12 @@
+import { INDUSTRIES } from '../../server/industries.js';
+
+// Static list of every FW taxonomy industry name. Built from the same
+// source-of-truth data the BFF serves via /api/industries — used by parsers
+// that run before the async taxonomy fetch completes (e.g. splitting the
+// FW report's comma-joined "Programmatic Industry Name" cell, where 32
+// real names themselves contain commas).
+export const KNOWN_INDUSTRY_NAMES = INDUSTRIES.map((i) => i.name);
+
 export function createTaxonomy({ assignable, groupIds }) {
   const groupSet = new Set(groupIds);
   const byIdMap = new Map(

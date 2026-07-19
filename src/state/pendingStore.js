@@ -9,17 +9,36 @@ export const usePendingStore = create(
 
       stage({ type, brand, payload }) {
         const id = uuidv4();
-        set((state) => ({
-          items: {
-            ...state.items,
-            [id]: {
-              id, type, brand, payload,
-              createdAt: new Date().toISOString(),
-              status: 'staged',
-              error: null,
+        set((state) => {
+          let items = state.items;
+          // A brand can only have one pending AM-industry edit: re-staging
+          // replaces the earlier staged/failed item instead of appending a
+          // duplicate (which would be applied twice, non-deterministically).
+          // Applied items are kept as an audit trail; in-flight ('applying')
+          // items are never yanked out from under an active request.
+          if (type === 'am-industry') {
+            const stale = Object.values(items).filter(
+              (i) => i.type === 'am-industry'
+                && i.brand.global_brand_id === brand.global_brand_id
+                && (i.status === 'staged' || i.status === 'failed'),
+            );
+            if (stale.length > 0) {
+              items = { ...items };
+              for (const i of stale) delete items[i.id];
+            }
+          }
+          return {
+            items: {
+              ...items,
+              [id]: {
+                id, type, brand, payload,
+                createdAt: new Date().toISOString(),
+                status: 'staged',
+                error: null,
+              },
             },
-          },
-        }));
+          };
+        });
         return id;
       },
 

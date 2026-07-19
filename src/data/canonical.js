@@ -54,7 +54,10 @@ export function pivotToCanonical(rawRecords, taxonomy) {
     if (r.pg) {
       if (r.source === 'fw-report') {
         row.pg = resolveSide(r.pg, taxonomy);
-      } else if (r.source === 'bq-sql' && row.pg == null) {
+      } else if (r.source === 'bq-sql' && row._bqPgRaw == null) {
+        // Always capture the BQ pg side (first one wins) so the fallback is
+        // available regardless of whether the FW record arrives before or
+        // after the BQ record.
         row._bqPgRaw = r.pg;
       }
     }
@@ -65,7 +68,13 @@ export function pivotToCanonical(rawRecords, taxonomy) {
       row.global_advertiser_nm = r.global_advertiser_nm ?? row.global_advertiser_nm;
       row.v3_advertiser_id = r.v3_advertiser_id ?? row.v3_advertiser_id;
       row.v3_brand_id = r.v3_brand_id ?? row.v3_brand_id;
-      if (r.gb) row.gb = r.gb;
+      if (r.gb) {
+        // gb with a pipe string resolves like the am side (deepest common
+        // ancestor); a plain { industry_id } gb passes through unchanged.
+        row.gb = r.gb.applied_industry_ids_raw != null
+          ? resolveSide(r.gb, taxonomy)
+          : r.gb;
+      }
     }
   }
 

@@ -76,7 +76,7 @@ describe('F1 (Programmatic Module — watch-list)', () => {
     expect(rows[0].flags.some((f) => f.type === 'F1' && f.side === 'pg')).toBe(false);
   });
 
-  it('does not fire on the AM side (AM-side F1 was removed)', () => {
+  it('plain F1 stays Programmatic-only (AM side uses the distinct F1_AM type)', () => {
     const rows = detectFlags([row({ am: watchedSide(202), pg: null })], watchedTaxonomy, flagConfig);
     expect(rows[0].flags.some((f) => f.type === 'F1')).toBe(false);
   });
@@ -84,6 +84,81 @@ describe('F1 (Programmatic Module — watch-list)', () => {
   it('adds F5 high-impact sub-marker when pg impressions exceed threshold', () => {
     const rows = detectFlags([row({ pg: watchedSide(202, 200_000) })], watchedTaxonomy, flagConfig);
     expect(rows[0].flags.find((f) => f.type === 'F1' && f.side === 'pg')?.highImpact).toBe(true);
+  });
+
+  // Pinning tests: the threshold comparison is strictly greater-than
+  // (`impressions > highImpressionThreshold`). These pin the CURRENT
+  // boundary behavior so a > / >= change is caught.
+  it('pins boundary: impressions exactly at highImpressionThreshold do NOT mark highImpact', () => {
+    const rows = detectFlags(
+      [row({ pg: watchedSide(202, flagConfig.highImpressionThreshold) })],
+      watchedTaxonomy, flagConfig,
+    );
+    const f1 = rows[0].flags.find((f) => f.type === 'F1' && f.side === 'pg');
+    expect(f1).toBeDefined();               // F1 itself still fires
+    expect(f1.highImpact).toBeUndefined();  // but not high-impact at the boundary
+  });
+
+  it('pins boundary: impressions one above highImpressionThreshold mark highImpact', () => {
+    const rows = detectFlags(
+      [row({ pg: watchedSide(202, flagConfig.highImpressionThreshold + 1) })],
+      watchedTaxonomy, flagConfig,
+    );
+    expect(rows[0].flags.find((f) => f.type === 'F1' && f.side === 'pg')?.highImpact).toBe(true);
+  });
+});
+
+describe('F1_AM (Advertiser Module — watch-list)', () => {
+  const watchedTaxonomy = createTaxonomy({
+    assignable: [
+      { id: 202, name: 'Clothing Stores', depth: 0, parentId: null, path: 'Clothing Stores' },
+      { id: 2020, name: "Men's", depth: 1, parentId: 202, path: "Clothing Stores › Men's" },
+      { id: 500, name: 'Safe Root', depth: 0, parentId: null, path: 'Safe Root' },
+    ],
+    groupIds: [],
+  });
+
+  function watchedSide(id, impressions = 0) {
+    const e = watchedTaxonomy.byId(id);
+    return {
+      applied_industry_ids_raw: String(id),
+      industry_names: null,
+      resolved_industry_id: id,
+      resolved_industry_name: e.name,
+      resolved_industry_depth: e.depth,
+      resolved_industry_path: watchedTaxonomy.pathOf(id),
+      impressions, revenue: 0,
+    };
+  }
+
+  it('fires F1_AM when am.resolved_industry_id is in HIGH_LEVEL_PARENTS_TO_WATCH', () => {
+    const rows = detectFlags([row({ am: watchedSide(202) })], watchedTaxonomy, flagConfig);
+    expect(rows[0].flags.some((f) => f.type === 'F1_AM' && f.side === 'am')).toBe(true);
+  });
+
+  it('does not fire when am industry is depth-0 but not watch-listed', () => {
+    const rows = detectFlags([row({ am: watchedSide(500) })], watchedTaxonomy, flagConfig);
+    expect(rows[0].flags.some((f) => f.type === 'F1_AM')).toBe(false);
+  });
+
+  it('does not fire for a non-watched descendant of a watched parent', () => {
+    const rows = detectFlags([row({ am: watchedSide(2020) })], watchedTaxonomy, flagConfig);
+    expect(rows[0].flags.some((f) => f.type === 'F1_AM')).toBe(false);
+  });
+
+  it('pg-side behavior unchanged: watched pg fires F1, never F1_AM', () => {
+    const rows = detectFlags([row({ pg: watchedSide(202) })], watchedTaxonomy, flagConfig);
+    expect(rows[0].flags.some((f) => f.type === 'F1' && f.side === 'pg')).toBe(true);
+    expect(rows[0].flags.some((f) => f.type === 'F1_AM')).toBe(false);
+  });
+
+  it('am and pg both watched fire F1_AM and F1 independently', () => {
+    const rows = detectFlags(
+      [row({ am: watchedSide(202), pg: watchedSide(202) })],
+      watchedTaxonomy, flagConfig,
+    );
+    expect(rows[0].flags.some((f) => f.type === 'F1_AM' && f.side === 'am')).toBe(true);
+    expect(rows[0].flags.some((f) => f.type === 'F1' && f.side === 'pg')).toBe(true);
   });
 });
 

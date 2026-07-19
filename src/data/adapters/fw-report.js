@@ -1,6 +1,47 @@
 import { parseCsv } from './csv-parser.js';
+import { KNOWN_INDUSTRY_NAMES } from '../taxonomy.js';
 
 const FW_HEADER_SIGNATURE = /^Global Brand Name,Global Brand ID,/;
+
+// Known taxonomy names sorted longest-first so greedy matching prefers
+// e.g. "Cosmetics, Beauty Supply, and Perfume Stores - All else" over
+// "Cosmetics, Beauty Supply, and Perfume Stores".
+const NAMES_BY_LENGTH = [...KNOWN_INDUSTRY_NAMES].sort((a, b) => b.length - a.length);
+
+// FW joins multiple industry names with commas, but 32 real taxonomy names
+// contain commas themselves. Greedy longest-match against the known-name
+// list; unknown segments fall back to consuming up to the next comma
+// (the previous behavior).
+export function splitFwIndustryNames(joined, knownNames = NAMES_BY_LENGTH) {
+  const out = [];
+  let i = 0;
+  const n = joined.length;
+  while (i < n) {
+    // Skip separators (comma + optional whitespace) between names.
+    while (i < n && (joined[i] === ',' || joined[i] === ' ')) i++;
+    if (i >= n) break;
+
+    let matched = null;
+    for (const name of knownNames) {
+      if (joined.startsWith(name, i)) {
+        const end = i + name.length;
+        if (end === n || joined[end] === ',') { matched = name; break; }
+      }
+    }
+
+    if (matched) {
+      out.push(matched);
+      i += matched.length;
+    } else {
+      const next = joined.indexOf(',', i);
+      const end = next === -1 ? n : next;
+      const piece = joined.slice(i, end).trim();
+      if (piece) out.push(piece);
+      i = end;
+    }
+  }
+  return out;
+}
 
 function findHeaderIndex(text) {
   const lines = text.split(/\r?\n/);
@@ -39,7 +80,7 @@ export function parseFwReport(text) {
     pg: {
       applied_industry_ids_raw: null,
       industry_names: typeof r['Programmatic Industry Name'] === 'string'
-        ? r['Programmatic Industry Name'].split(',').map((s) => s.trim()).filter(Boolean)
+        ? splitFwIndustryNames(r['Programmatic Industry Name'])
         : [],
       impressions: parseFwNumber(r['Gross Counted Ads']),
       revenue: parseFwNumber(r['Run Revenue']),

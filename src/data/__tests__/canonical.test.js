@@ -76,6 +76,57 @@ describe('pivotToCanonical', () => {
     expect(row.pg.bq_fallback.impressions).toBe(999);
   });
 
+  it('pg slot + bq_fallback are order-independent (FW-before-BQ equals BQ-before-FW)', () => {
+    const bqRecord = {
+      source: 'bq-sql', global_brand_id: 1, global_brand_nm: 'A',
+      global_advertiser_id: 10, global_advertiser_nm: 'AdvA',
+      v3_advertiser_id: null, v3_brand_id: null,
+      am: null,
+      pg: { applied_industry_ids_raw: '200', industry_names: null, impressions: 999, revenue: 999 },
+      gb: null,
+    };
+    const fwRecord = {
+      source: 'fw-report', global_brand_id: 1, global_brand_nm: 'A',
+      global_advertiser_id: null, global_advertiser_nm: null,
+      v3_advertiser_id: null, v3_brand_id: null,
+      am: null,
+      pg: { applied_industry_ids_raw: null, industry_names: ['Tech'], impressions: 1, revenue: 1 },
+      gb: null,
+    };
+    const [bqFirst] = pivotToCanonical([bqRecord, fwRecord], taxonomy);
+    const [fwFirst] = pivotToCanonical([fwRecord, bqRecord], taxonomy);
+
+    expect(fwFirst.pg.resolved_industry_id).toBe(100);   // FW still wins the pg slot
+    expect(fwFirst.pg.bq_fallback?.impressions).toBe(999); // BQ fallback captured either way
+    expect(fwFirst).toEqual(bqFirst);
+  });
+
+  it('resolves gb from a configured_industry_ids_raw pipe string (deepest common ancestor)', () => {
+    const records = [
+      { source: 'bq-sql', global_brand_id: 1, global_brand_nm: 'A',
+        global_advertiser_id: 10, global_advertiser_nm: 'AdvA',
+        v3_advertiser_id: null, v3_brand_id: null,
+        am: null, pg: null,
+        gb: { applied_industry_ids_raw: '100|101', industry_names: null } },
+    ];
+    const [row] = pivotToCanonical(records, taxonomy);
+    expect(row.gb.resolved_industry_id).toBe(100);        // LCA of Tech(100), Software(101)
+    expect(row.gb.resolved_industry_name).toBe('Tech');
+    expect(row.gb.resolved_industry_path).toBe('Tech');
+  });
+
+  it('keeps a plain gb_industry_id gb slot as-is (no raw column)', () => {
+    const records = [
+      { source: 'bq-sql', global_brand_id: 1, global_brand_nm: 'A',
+        global_advertiser_id: 10, global_advertiser_nm: 'AdvA',
+        v3_advertiser_id: null, v3_brand_id: null,
+        am: null, pg: null,
+        gb: { industry_id: 101 } },
+    ];
+    const [row] = pivotToCanonical(records, taxonomy);
+    expect(row.gb).toEqual({ industry_id: 101 });
+  });
+
   it('advertiser identity from BQ side when present', () => {
     const records = [
       { source: 'fw-report', global_brand_id: 1, global_brand_nm: 'A (FW name)',

@@ -16,19 +16,31 @@ function detectF1(row, _taxonomy, config, flags) {
   // hand-curated "too-generic parents" in HIGH_LEVEL_PARENTS_TO_WATCH.
   // The user maintains this list; depth-based detection produced too much noise.
   const s = row.pg;
-  if (!s || s.resolved_industry_id == null) return;
-  if (!HIGH_LEVEL_PARENTS_TO_WATCH.has(s.resolved_industry_id)) return;
-
-  const flag = {
-    type: 'F1',
-    side: 'pg',
-    severity: 'high',
-    note: `Programmatic Module mapped to '${s.resolved_industry_name}' — flagged as too-generic parent. Ask FreeWheel to drill down or override Advertiser Module.`,
-  };
-  if (s.impressions > config.highImpressionThreshold) {
-    flag.highImpact = true;
+  if (s && s.resolved_industry_id != null && HIGH_LEVEL_PARENTS_TO_WATCH.has(s.resolved_industry_id)) {
+    const flag = {
+      type: 'F1',
+      side: 'pg',
+      severity: 'high',
+      note: `Programmatic Module mapped to '${s.resolved_industry_name}' — flagged as too-generic parent. Ask FreeWheel to drill down or override Advertiser Module.`,
+    };
+    if (s.impressions > config.highImpressionThreshold) {
+      flag.highImpact = true;
+    }
+    flags.push(flag);
   }
-  flags.push(flag);
+
+  // F1_AM: same watch-list applied to the Advertiser Module side — an
+  // AM-applied too-generic parent also needs reclassification. Distinct
+  // type so filters/badges keep the sides separate.
+  const am = row.am;
+  if (am && am.resolved_industry_id != null && HIGH_LEVEL_PARENTS_TO_WATCH.has(am.resolved_industry_id)) {
+    flags.push({
+      type: 'F1_AM',
+      side: 'am',
+      severity: 'high',
+      note: `Advertiser Module mapped to '${am.resolved_industry_name}' — flagged as too-generic parent. Drill down to a more specific child industry.`,
+    });
+  }
 }
 
 function detectF2(row, taxonomy, _config, flags) {
