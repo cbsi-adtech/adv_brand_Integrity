@@ -17,8 +17,11 @@ const BUILDER_OPTS = {
 // the advertiser-level inherited value. Setting `industry: { industry_id: NEW }`
 // at the brand level establishes a single effective industry for that brand.
 export function mutateBrandIndustry(brandPayload, newIndustryId) {
-  if (typeof newIndustryId !== 'number' && !/^\d+$/.test(String(newIndustryId))) {
-    throw new Error('new industry id must be numeric');
+  const idOk = typeof newIndustryId === 'number'
+    ? Number.isInteger(newIndustryId) && newIndustryId > 0
+    : /^\d+$/.test(String(newIndustryId)) && Number(newIndustryId) > 0;
+  if (!idOk) {
+    throw new Error('new industry id must be numeric (a positive integer)');
   }
   if (brandPayload == null || typeof brandPayload !== 'object') {
     throw new Error('brand payload must be an object');

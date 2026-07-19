@@ -3,7 +3,18 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CACHE_PATH = resolve(__dirname, 'v3-mapping-cache.json');
+const DEFAULT_CACHE_PATH = resolve(__dirname, 'v3-mapping-cache.json');
+
+// Cap for the per-resolver memo maps so a long-lived server process cannot
+// grow them unboundedly. When full, evict the oldest insertion.
+const MEMO_CAP = 500;
+
+function memoSet(map, key, value) {
+  if (map.size >= MEMO_CAP) {
+    map.delete(map.keys().next().value);
+  }
+  map.set(key, value);
+}
 
 // Strip corporate suffixes so "Carvana LLC" becomes "Carvana" before searching
 // FW V3 list-advertisers (which uses case-sensitive prefix match on word boundaries).
@@ -21,26 +32,77 @@ export function stripCorpSuffix(name) {
   return s;
 }
 
-async function loadCache() {
+async function loadCache(cachePath) {
+  let txt;
   try {
-    const txt = await fs.readFile(CACHE_PATH, 'utf8');
-    return JSON.parse(txt);
+    txt = await fs.readFile(cachePath, 'utf8');
   } catch {
+    // Missing file is normal on first run.
+    return {};
+  }
+  try {
+    return JSON.parse(txt);
+  } catch (err) {
+    // The file exists but is unreadable — do NOT silently discard it. Move it
+    // aside so it can be inspected/recovered, complain loudly, start fresh.
+    const corruptPath = `${cachePath}.corrupt-${process.pid}`;
+    try {
+      await fs.rename(cachePath, corruptPath);
+    } catch { /* best effort — the next save will overwrite it anyway */ }
+    console.error(
+      `[v3-resolver] cache file ${cachePath} is corrupt (${err.message}). ` +
+      `Moved it to ${corruptPath} and starting with an empty cache.`,
+    );
     return {};
   }
 }
 
-async function saveCache(cache) {
-  await fs.writeFile(CACHE_PATH, JSON.stringify(cache, null, 2), 'utf8');
+let tmpCounter = 0;
+
+async function saveCache(cachePath, cache) {
+  // Write to a temp file in the same directory, then rename over the target so
+  // a crash mid-write can never leave a truncated/corrupt cache file.
+  const tmpPath = `${cachePath}.tmp-${process.pid}-${++tmpCounter}`;
+  await fs.writeFile(tmpPath, JSON.stringify(cache, null, 2), 'utf8');
+  try {
+    await fs.rename(tmpPath, cachePath);
+  } catch (err) {
+    // fs.promises.rename overwrites existing files on Windows, but be
+    // defensive: if the target is locked/exists, remove it and retry once.
+    if (err.code === 'EEXIST' || err.code === 'EPERM') {
+      await fs.rm(cachePath, { force: true });
+      await fs.rename(tmpPath, cachePath);
+    } else {
+      await fs.rm(tmpPath, { force: true }).catch(() => {});
+      throw err;
+    }
+  }
 }
 
-export function createResolver({ fw }) {
+export function createResolver({ fw, cachePath = process.env.V3_CACHE_PATH || DEFAULT_CACHE_PATH }) {
   let cache = null;
   const advCandidatesByName = new Map();
   const brandsByAdvertiser = new Map();
 
+  // Serialize cache writes: chain every save onto the previous one so
+  // concurrent saves can never interleave their temp-file/rename steps.
+  let writeQueue = Promise.resolve();
+
+  function persistCache() {
+    const run = writeQueue.then(() => saveCache(cachePath, cache));
+    writeQueue = run.catch(() => {});
+    return run;
+  }
+
+  // Share one in-flight load so concurrent callers can't each reload the file
+  // and clobber the shared cache object (losing each other's entries).
+  let cacheLoad = null;
+
   async function ensureCache() {
-    if (cache === null) cache = await loadCache();
+    if (cache !== null) return;
+    if (!cacheLoad) cacheLoad = loadCache(cachePath);
+    const loaded = await cacheLoad;
+    if (cache === null) cache = loaded;
   }
 
   async function searchAdvertisers(searchName) {
@@ -49,7 +111,7 @@ export function createResolver({ fw }) {
     const list = result?.advertisers?.advertiser;
     const arr = Array.isArray(list) ? list : list ? [list] : [];
     const cleaned = arr.map((a) => ({ id: Number(a.id), name: a.name }));
-    advCandidatesByName.set(searchName, cleaned);
+    memoSet(advCandidatesByName, searchName, cleaned);
     return cleaned;
   }
 
@@ -59,7 +121,7 @@ export function createResolver({ fw }) {
     const list = result?.brands?.brand;
     const arr = Array.isArray(list) ? list : list ? [list] : [];
     const cleaned = arr.map((b) => ({ id: Number(b.id), name: b.name }));
-    brandsByAdvertiser.set(advertiserId, cleaned);
+    memoSet(brandsByAdvertiser, advertiserId, cleaned);
     return cleaned;
   }
 
@@ -134,7 +196,7 @@ export function createResolver({ fw }) {
     for (const item of items) {
       results.push(await resolveOne(item));
     }
-    await saveCache(cache);
+    await persistCache();
     return results;
   }
 
@@ -149,7 +211,7 @@ export function createResolver({ fw }) {
       v3_brand_nm: global_brand_nm ?? null,
       manual: true,
     };
-    await saveCache(cache);
+    await persistCache();
     return cache[key];
   }
 

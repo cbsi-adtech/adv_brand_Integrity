@@ -6,6 +6,8 @@ import { readRecent } from './audit-read.js';
 import { createResolver } from './v3-resolver.js';
 import { suggestIndustry } from './suggest-industry.js';
 
+const MAX_APPLY_BATCH = 200;
+
 function isValidChange(c) {
   return c
     && Number.isInteger(c.v3_advertiser_id)
@@ -35,8 +37,21 @@ export function createRouter({ fw, environment }) {
     if (!Array.isArray(changes) || changes.length === 0) {
       return res.status(400).json({ error: 'body.changes must be a non-empty array' });
     }
+    if (changes.length > MAX_APPLY_BATCH) {
+      return res.status(400).json({ error: `body.changes must contain at most ${MAX_APPLY_BATCH} changes (got ${changes.length}); split the batch and retry` });
+    }
     if (!changes.every(isValidChange)) {
       return res.status(400).json({ error: 'each change requires integer v3_advertiser_id, v3_brand_id, new_industry_id (non-group)' });
+    }
+
+    // Audit writes must never change the outcome of a row: a change that hit
+    // FW successfully stays 'ok' even if the audit log is unwritable.
+    async function safeAudit(entry) {
+      try {
+        await appendAudit(entry);
+      } catch (auditErr) {
+        console.error('[apply] audit write failed (change outcome unaffected):', auditErr?.message || auditErr);
+      }
     }
 
     const results = [];
@@ -54,9 +69,11 @@ export function createRouter({ fw, environment }) {
           brand_id: change.v3_brand_id,
         });
         if (brandPayload == null || typeof brandPayload !== 'object') {
+          // JSON.stringify(undefined) returns undefined — guard so the
+          // diagnostic itself can never throw.
           const preview = typeof brandPayload === 'string'
             ? brandPayload.slice(0, 500)
-            : JSON.stringify(brandPayload).slice(0, 500);
+            : String(JSON.stringify(brandPayload) ?? brandPayload).slice(0, 500);
           console.error(
             `[apply] sh_1_1_show-a-brand returned non-object for adv=${change.v3_advertiser_id} brand=${change.v3_brand_id}. type=${typeof brandPayload}. preview:`,
             preview,
@@ -68,8 +85,11 @@ export function createRouter({ fw, environment }) {
           brand_id: change.v3_brand_id,
           body: mutatedXml,
         });
+        // The FW update succeeded: record the ok result FIRST, then attempt
+        // the audit write. safeAudit never throws, so an audit failure can
+        // neither convert this row to an error nor push a duplicate row.
         results.push({ ...base, status: 'ok' });
-        await appendAudit({
+        await safeAudit({
           environment,
           brand_id: change.v3_brand_id,
           advertiser_id: change.v3_advertiser_id,
@@ -81,7 +101,7 @@ export function createRouter({ fw, environment }) {
       } catch (err) {
         const message = err?.message || String(err);
         results.push({ ...base, status: 'error', error: message });
-        await appendAudit({
+        await safeAudit({
           environment,
           brand_id: change.v3_brand_id,
           advertiser_id: change.v3_advertiser_id,
@@ -99,8 +119,10 @@ export function createRouter({ fw, environment }) {
 
   router.post('/resolve-v3/manual', async (req, res) => {
     const { global_brand_id, v3_advertiser_id, v3_brand_id, global_brand_nm, global_advertiser_nm } = req.body || {};
-    if (![global_brand_id, v3_advertiser_id, v3_brand_id].every(Number.isInteger)) {
-      return res.status(400).json({ error: 'global_brand_id, v3_advertiser_id, v3_brand_id must all be integers' });
+    if (!Number.isInteger(global_brand_id)
+        || !Number.isInteger(v3_advertiser_id) || v3_advertiser_id <= 0
+        || !Number.isInteger(v3_brand_id) || v3_brand_id <= 0) {
+      return res.status(400).json({ error: 'global_brand_id must be an integer; v3_advertiser_id and v3_brand_id must be positive integers' });
     }
     try {
       const entry = await resolver.setManual({ global_brand_id, v3_advertiser_id, v3_brand_id, global_brand_nm, global_advertiser_nm });

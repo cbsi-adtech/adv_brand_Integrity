@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { mutateBrandIndustry } from '../mutate-brand-xml.js';
 
@@ -60,6 +61,14 @@ describe('mutateBrandIndustry', () => {
   it('throws when given a non-numeric new id', () => {
     expect(() => mutateBrandIndustry({ brand: { id: '1', industry: null } }, 'abc'))
       .toThrow(/numeric/i);
+  });
+
+  it('throws for NaN, negative, zero, and non-integer numeric ids', () => {
+    const payload = () => ({ brand: { id: '1', industry: null } });
+    expect(() => mutateBrandIndustry(payload(), NaN)).toThrow(/numeric/i);
+    expect(() => mutateBrandIndustry(payload(), -5)).toThrow(/numeric/i);
+    expect(() => mutateBrandIndustry(payload(), 0)).toThrow(/numeric/i);
+    expect(() => mutateBrandIndustry(payload(), 5.5)).toThrow(/numeric/i);
   });
 
   it('throws when payload is not an object', () => {

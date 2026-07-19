@@ -1,7 +1,24 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import _sodium from 'libsodium-wrappers';
 import { createRouter } from '../routes.js';
+import { createFwClient } from '../fw.js';
+import { appendAudit } from '../audit.js';
+
+// Keep tests from appending to the real server/audit.log and let them observe
+// (and fail) audit writes.
+vi.mock('../audit.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, appendAudit: vi.fn().mockResolvedValue(undefined) };
+});
+
+// Keep the resolver from touching the real server/v3-mapping-cache.json.
+process.env.V3_CACHE_PATH = join(mkdtempSync(join(tmpdir(), 'routes-v3cache-')), 'cache.json');
 
 // Real FW V3 brand response shape returned by `invoke_tool` for sh_1_1_show-a-brand
 const FAKE_BRAND_PAYLOAD = {
@@ -69,7 +86,7 @@ describe('POST /api/changes/apply', () => {
   it('reports per-row failure but continues with later rows', async () => {
     let count = 0;
     const fw = makeFakeFw({
-      updateImpl: (params) => {
+      updateImpl: (_params) => {
         count++;
         if (count === 1) throw new Error('FW: 422 — industry not assignable');
         return { ok: true };
@@ -97,6 +114,151 @@ describe('POST /api/changes/apply', () => {
       .post('/api/changes/apply')
       .send({ changes: 'not-an-array' });
     expect(res.status).toBe(400);
+  });
+
+  it('rejects batches larger than 200 changes with a 400', async () => {
+    const changes = Array.from({ length: 201 }, (_, i) => ({
+      v3_advertiser_id: i + 1,
+      v3_brand_id: i + 1,
+      new_industry_id: 5251,
+    }));
+    const fw = makeFakeFw();
+    const res = await request(buildApp(fw)).post('/api/changes/apply').send({ changes });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/200/);
+    expect(fw.invoke).not.toHaveBeenCalled();
+  });
+
+  it('reports an error row and audits the error when the FW update returns isError', async () => {
+    appendAudit.mockClear();
+    appendAudit.mockResolvedValue(undefined);
+    const brandXml = '<brand><id>67890</id><name>Geico (Brand)</name><industry><industry_id>5249</industry_id></industry></brand>';
+    const fetchMock = vi.fn(async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      const tool = body.params.name === 'invoke_tool' ? body.params.arguments.tool_name : body.params.name;
+      const reply = (result) => ({ ok: true, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
+      if (tool === 'streaming_hub_get_login_public_key') {
+        await _sodium.ready;
+        const pub = _sodium.to_base64(_sodium.crypto_box_keypair().publicKey, _sodium.base64_variants.ORIGINAL);
+        return reply({ content: [{ type: 'text', text: JSON.stringify({ public_key_b64: pub, kid: 'kid-1', alg: 'sealed-box-x25519' }) }], isError: false });
+      }
+      if (tool === 'streaming_hub_login_encrypted') {
+        return reply({ content: [{ type: 'text', text: JSON.stringify({ ok: true, session_id: 'abc123' }) }], isError: false });
+      }
+      if (tool === 'sh_1_1_show-a-brand') {
+        return reply({ content: [{ type: 'text', text: brandXml }], isError: false });
+      }
+      if (tool === 'sh_1_1_update-a-brand') {
+        return reply({ content: [{ type: 'text', text: 'Tool execution failed: brand could not be updated' }], isError: true });
+      }
+      throw new Error(`unexpected tool: ${tool}`);
+    });
+    const fw = createFwClient({
+      url: 'https://fw.example/',
+      username: 'u', password: 'p', environment: 'staging',
+      fetchImpl: fetchMock,
+    });
+
+    const res = await request(buildApp(fw))
+      .post('/api/changes/apply')
+      .send({
+        changes: [{
+          v3_advertiser_id: 12345,
+          v3_brand_id: 67890,
+          brand_name: 'Geico',
+          current_industry_id: 5249,
+          new_industry_id: 5251,
+        }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0].status).toBe('error');
+    expect(res.body.results[0].error).toMatch(/could not be updated/);
+    const auditEntries = appendAudit.mock.calls.map(([entry]) => entry);
+    expect(auditEntries).toHaveLength(1);
+    expect(auditEntries[0].status).toBe('error');
+  });
+
+  it('still reports ok (exactly once) when the audit write fails after a successful update', async () => {
+    appendAudit.mockClear();
+    appendAudit.mockRejectedValue(new Error('disk full'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fw = makeFakeFw();
+
+    const res = await request(buildApp(fw))
+      .post('/api/changes/apply')
+      .send({
+        changes: [{
+          v3_advertiser_id: 12345,
+          v3_brand_id: 67890,
+          brand_name: 'Geico',
+          current_industry_id: 5249,
+          new_industry_id: 5251,
+        }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0].status).toBe('ok');
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+    appendAudit.mockReset();
+    appendAudit.mockResolvedValue(undefined);
+  });
+
+  it('reports a clean error row when the brand payload is undefined (diagnostic must not crash)', async () => {
+    appendAudit.mockReset();
+    appendAudit.mockResolvedValue(undefined);
+    const fw = makeFakeFw();
+    fw.invoke.mockImplementation(async (toolName) => {
+      if (toolName === 'sh_1_1_show-a-brand') return undefined;
+      return { ok: true };
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await request(buildApp(fw))
+      .post('/api/changes/apply')
+      .send({
+        changes: [{
+          v3_advertiser_id: 1,
+          v3_brand_id: 2,
+          brand_name: 'X',
+          current_industry_id: 1,
+          new_industry_id: 5251,
+        }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.results[0].status).toBe('error');
+    // The real failure (payload not an object), not a crash inside the
+    // diagnostic preview ("Cannot read properties of undefined ...").
+    expect(res.body.results[0].error).toMatch(/payload must be an object/i);
+    // The diagnostic itself ran.
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+});
+
+describe('POST /api/resolve-v3/manual', () => {
+  it('rejects non-positive v3 ids with a 400', async () => {
+    const app = buildApp(makeFakeFw());
+    const base = { global_brand_id: 1, global_brand_nm: 'B', global_advertiser_nm: 'A' };
+
+    let res = await request(app).post('/api/resolve-v3/manual')
+      .send({ ...base, v3_advertiser_id: -5, v3_brand_id: 2 });
+    expect(res.status).toBe(400);
+
+    res = await request(app).post('/api/resolve-v3/manual')
+      .send({ ...base, v3_advertiser_id: 5, v3_brand_id: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts positive integer v3 ids', async () => {
+    const res = await request(buildApp(makeFakeFw())).post('/api/resolve-v3/manual')
+      .send({ global_brand_id: 12321, v3_advertiser_id: 5, v3_brand_id: 6 });
+    expect(res.status).toBe(200);
+    expect(res.body.entry).toMatchObject({ v3_advertiser_id: 5, v3_brand_id: 6, manual: true });
   });
 });
 
