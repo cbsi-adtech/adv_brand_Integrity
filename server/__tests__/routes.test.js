@@ -134,7 +134,13 @@ describe('POST /api/changes/apply', () => {
     appendAudit.mockResolvedValue(undefined);
     const brandXml = '<brand><id>67890</id><name>Geico (Brand)</name><industry><industry_id>5249</industry_id></industry></brand>';
     const fetchMock = vi.fn(async (url, opts) => {
+      // Pre-v3.3 server generation: no /register, so the client falls back to
+      // the legacy sealed-box login exercised below.
+      if (String(url).endsWith('/register') || String(url).endsWith('/token/machine')) {
+        return { ok: false, status: 404, headers: new Headers(), text: async () => '', json: async () => null };
+      }
       const body = JSON.parse(opts.body);
+      if (!body.params?.name) return { ok: true, headers: new Headers(), json: async () => ({ jsonrpc: '2.0', result: {} }) };
       const tool = body.params.name === 'invoke_tool' ? body.params.arguments.tool_name : body.params.name;
       const reply = (result) => ({ ok: true, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
       if (tool === 'streaming_hub_get_login_public_key') {

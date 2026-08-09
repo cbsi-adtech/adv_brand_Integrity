@@ -23,7 +23,7 @@ export function createRouter({ fw, environment }) {
   router.get('/health', (req, res) => {
     res.json({
       environment,
-      loggedIn: Boolean(fw.sessionId),
+      loggedIn: Boolean(fw.authenticated ?? fw.sessionId),
       sessionEstablishedAt: fw.sessionEstablishedAt,
     });
   });
