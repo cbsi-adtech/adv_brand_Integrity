@@ -12,10 +12,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24 ships npm 11, which is required to read this lock file: vite 8
+      # (bundled by vitest) declares esbuild as an OPTIONAL peer dependency, and
+      # npm 10 (Node 20) ignores that flag — it demands esbuild + 27 @esbuild/*
+      # platform packages that npm 11 correctly omits, so `npm ci` fails the
+      # lock/package.json sync check. Keep this aligned with the dev runtime.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - run: npm ci
